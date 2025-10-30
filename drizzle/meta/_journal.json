@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1761219378925,
+      "tag": "0000_lowly_anthem",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1761223433797,
+      "tag": "0001_grey_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1761455001161,
+      "tag": "0002_broad_robbie_robertson",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1761476664963,
+      "tag": "0003_odd_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1761729895307,
+      "tag": "0004_short_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1761785155979,
+      "tag": "0005_yielding_fabian_cortez",
+      "breakpoints": true
+    }
+  ]
+}

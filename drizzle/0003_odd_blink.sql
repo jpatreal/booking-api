@@ -1,0 +1,1 @@
+ALTER TABLE "Staff" ALTER COLUMN "color" SET DEFAULT '#3b82f6';
