@@ -133,6 +133,33 @@ export const memberships = pgTable(
   ],
 );
 
+export const membershipInvites = pgTable(
+  'MembershipInvite',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    businessId: uuid('businessId')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+
+    email: text('email').notNull(),
+    role: roleEnum('role').notNull(),
+
+    tokenHash: text('tokenHash').notNull().unique(),
+
+    createdAt: timestamp('createdAt', { withTimezone: true }).defaultNow(),
+    expiresAt: timestamp('expiresAt', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('acceptedAt', { withTimezone: true }),
+  },
+
+  (t) => [
+    uniqueIndex('invite_token_hash_uq').on(t.tokenHash),
+    index('invite_business_email_idx').on(t.businessId, t.email),
+    index('invite_business_expires_idx').on(t.businessId, t.expiresAt),
+    index('invite_business_accepted_idx').on(t.businessId, t.acceptedAt),
+  ],
+);
+
 export const services = pgTable(
   'Service',
   {

@@ -55,6 +55,7 @@ async function bootstrap() {
     'password',
     'passwordHash',
     'deletedAt',
+    'disabledAt',
     'token',
     'tokenHash',
     'refreshToken',

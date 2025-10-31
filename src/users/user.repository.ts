@@ -3,6 +3,7 @@ import { and, eq, ilike, or, lt, gt, sql } from 'drizzle-orm';
 import type { DB } from '@app/db';
 import { users } from '@app/db/schema';
 import { BaseRepository } from '@app/common/db/base.repository';
+import { NotFoundAppError } from '@app/common/errors/specialized.errors';
 
 export type UserFilters = {
   q?: string;
@@ -29,7 +30,7 @@ export class UserRepository extends BaseRepository<typeof users> {
 
   async findByIdOrThrow(id: string) {
     const row = await this.findById(id);
-    if (!row) throw new NotFoundException('User not found');
+    if (!row) throw new NotFoundAppError('User not found');
     return row;
   }
 

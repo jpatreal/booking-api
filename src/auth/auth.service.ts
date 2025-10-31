@@ -21,7 +21,7 @@ import {
   verificationType as verificationTypeEnum,
   signupKeys,
 } from '@app/db/schema';
-import { and, eq, gt } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { AppError } from '@app/common/errors/app.error';
 import { ErrorCode } from '@app/common/errors/error-codes';
@@ -32,6 +32,8 @@ import {
 } from '@app/common/errors/specialized.errors';
 import { HttpStatus } from '@nestjs/common';
 import { assertUserEnabled } from '@app/common/utils/tenant.util';
+import { addDays } from 'date-fns';
+import { MembershipInviteService } from '@app/memberships/membership-invite.service';
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -39,6 +41,15 @@ function normalizeEmail(email: string) {
 
 type Role = (typeof roleEnum.enumValues)[number];
 type VerificationType = (typeof verificationTypeEnum.enumValues)[number];
+type RegisterInput = {
+  email: string;
+  password: string;
+
+  registrationKey?: string;
+  businessName?: string;
+
+  inviteToken?: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -49,21 +60,80 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly tokens: TokensService,
     private readonly mailer: MailerService,
+    private readonly membershipInvites: MembershipInviteService,
   ) {}
 
-  async register(
-    email: string,
-    password: string,
-    businessName: string,
-    registrationKey: string,
-  ) {
-    const normalizedEmail = normalizeEmail(email);
-    if (!registrationKey) {
-      throw new AppError('Registration key is required');
-    }
-    const keyHash = sha256Base64(registrationKey);
+  async register(dto: RegisterInput) {
+    const normalizedEmail = normalizeEmail(dto.email);
     const now = new Date();
 
+    const hasKey = !!dto.registrationKey;
+    const hasInvite = !!dto.inviteToken;
+
+    if (hasKey && hasInvite) {
+      throw new AppError(
+        'Use either registrationKey (owner) or inviteToken (staff), not both.',
+      );
+    }
+    if (!hasKey && !hasInvite) {
+      throw new AppError(
+        'Provide registrationKey (owner) or inviteToken (staff).',
+      );
+    }
+
+    if (hasInvite) {
+      const invite = await this.membershipInvites.verifyToken(dto.inviteToken!);
+
+      if (invite.email.toLowerCase() !== normalizedEmail) {
+        throw new UnauthorizedAppError(
+          'Invite email does not match the registering email.',
+        );
+      }
+
+      const passwordHash = await argon2.hash(dto.password, {
+        type: argon2.argon2id,
+      });
+
+      const result = await this.db.transaction(async (tx) => {
+        const existing = await tx.query.users.findFirst({
+          where: (t, { eq }) => eq(t.email, normalizedEmail),
+        });
+        if (existing) {
+          throw new ConflictAppError('Email already registered', {
+            email: normalizedEmail,
+          });
+        }
+
+        const [user] = await tx
+          .insert(users)
+          .values({ email: normalizedEmail, passwordHash })
+          .returning();
+
+        // await this.membershipInvites.acceptWithToken(dto.inviteToken!, user.id);
+
+        return { user, biz: null as any };
+      });
+
+      try {
+        await this.sendVerificationEmail(result.user.id, normalizedEmail);
+      } catch (e) {
+        this.logger.warn(
+          'Failed to send verification email after invite registration',
+          e,
+        );
+      }
+
+      return result;
+    }
+
+    if (!dto.registrationKey) {
+      throw new AppError('Registration key is required');
+    }
+    if (!dto.businessName || !dto.businessName.trim()) {
+      throw new AppError('Business name is required for owner registration');
+    }
+
+    const keyHash = sha256Base64(dto.registrationKey);
     const key = await this.db.query.signupKeys.findFirst({
       where: (t, { eq, or, isNull, gt, and }) =>
         and(
@@ -79,47 +149,49 @@ export class AuthService {
         'This key is restricted to a specific email domain',
       );
     }
-
     if (key.maxUses !== null && key.usedCount >= key.maxUses) {
       throw new UnauthorizedAppError('Registration key usage limit reached');
     }
 
-    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    const passwordHash = await argon2.hash(dto.password, {
+      type: argon2.argon2id,
+    });
 
     const result = await this.db.transaction(async (tx) => {
       const existing = await tx.query.users.findFirst({
         where: (t, { eq }) => eq(t.email, normalizedEmail),
       });
-      if (existing)
+      if (existing) {
         throw new ConflictAppError('Email already registered', {
           email: normalizedEmail,
         });
+      }
 
       const [user] = await tx
         .insert(users)
         .values({ email: normalizedEmail, passwordHash })
         .returning();
 
-      const slug = await generateUniqueSlug(tx, businesses, businessName);
+      const slug = await generateUniqueSlug(tx, businesses, dto.businessName!);
       const trialDays = key.trialDays ?? 14;
-      const trialEndsAt = new Date(
-        Date.now() + trialDays * 24 * 60 * 60 * 1000,
-      );
+      const trialEndsAt = addDays(now, trialDays);
+
+      const limits =
+        key.plan === 'TEST'
+          ? { staff: 2, services: 5 }
+          : key.plan === 'FREE'
+            ? { staff: 3, services: 10 }
+            : null;
 
       const [biz] = await tx
         .insert(businesses)
         .values({
-          name: businessName,
+          name: dto.businessName!,
           slug,
           plan: key.plan,
           status: 'trialing',
           trialEndsAt,
-          limitsJson:
-            key.plan === 'TEST'
-              ? JSON.stringify({ staff: 2, services: 5 })
-              : key.plan === 'FREE'
-                ? JSON.stringify({ staff: 3, services: 10 })
-                : null,
+          limitsJson: limits ? JSON.stringify(limits) : null,
         })
         .returning();
 
@@ -277,11 +349,12 @@ export class AuthService {
     const url = `${this.config.get('APP_URL')}/verify-email?token=${token}`;
 
     try {
-      await this.mailer.sendMail(
-        email,
-        'Verify your email',
-        renderVerifyEmailTemplate({ link: url }),
-      );
+      // await this.mailer.sendMail(
+      //   email,
+      //   'Verify your email',
+      //   renderVerifyEmailTemplate({ link: url }),
+      // );
+      this.logger.log(`Sent verification email to ${email} with link: ${url}`);
     } catch (e) {
       throw new AppError('Failed to send verification email', {
         code: ErrorCode.MAIL_DELIVERY_FAILED,

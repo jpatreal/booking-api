@@ -12,9 +12,16 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { SessionsRepository } from './sessions.repository';
+import { MembershipInviteService } from '@app/memberships/membership-invite.service';
+import { MembershipsModule } from '@app/memberships/memberships.module';
 
 @Module({
-  imports: [ConfigModule, PassportModule, JwtModule.register({})],
+  imports: [
+    ConfigModule,
+    PassportModule,
+    JwtModule.register({}),
+    MembershipsModule,
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -26,7 +33,8 @@ import { SessionsRepository } from './sessions.repository';
     JwtAccessStrategy,
     GoogleStrategy,
     SessionsRepository,
+    MembershipInviteService,
   ],
-  exports: [JwtModule],
+  exports: [JwtModule, MailerService],
 })
 export class AuthModule {}

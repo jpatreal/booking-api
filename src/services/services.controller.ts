@@ -78,8 +78,8 @@ export class ServicesController {
     return this.servicesService.remove(param.businessId, param.id);
   }
 
-  @Post(':id/restore')
   @Roles('OWNER')
+  @Post(':id/restore')
   @ResMessage('Service restored')
   async restore(@Param() param: BusinessIdDto) {
     return this.servicesService.restore(param.businessId, param.id);

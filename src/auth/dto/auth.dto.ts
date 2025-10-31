@@ -4,20 +4,29 @@ import {
   IsOptional,
   IsString,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
   email!: string;
 
-  @MinLength(8)
+  @IsString()
+  @MinLength(6)
   password!: string;
 
-  @IsNotEmpty()
-  businessName!: string;
-
+  @IsOptional()
   @IsString()
-  registrationKey!: string;
+  registrationKey?: string;
+
+  @ValidateIf((o) => !!o.registrationKey && !o.inviteToken)
+  @IsString()
+  @IsNotEmpty()
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  inviteToken?: string;
 }
 
 export class LoginDto {

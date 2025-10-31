@@ -8,6 +8,7 @@ import {
   businesses as b,
   roleEnum,
 } from '@app/db/schema';
+import { QueryParamsDto } from './dto/memberships.dto';
 
 export type Role = (typeof roleEnum.enumValues)[number];
 
@@ -15,20 +16,21 @@ export type Role = (typeof roleEnum.enumValues)[number];
 export class MembershipsRepository {
   constructor(@Inject(DRIZZLE) private readonly db: DB) {}
 
-  async listByBusiness(
-    businessId: string,
-    opts: {
-      q?: string;
-      page?: number;
-      pageSize?: number;
-      includeDisabled?: boolean;
-    } = {},
-  ) {
+  async ensureOwnerMembership(userId: string, businessId: string) {
+    const [membership] = await this.db
+      .insert(m)
+      .values({ userId, businessId, role: 'OWNER' })
+      .returning();
+    return membership;
+  }
+
+  async listByBusiness(businessId: string, opts: QueryParamsDto) {
     const { q, page = 1, pageSize = 20, includeDisabled = false } = opts;
     const offset = (page - 1) * pageSize;
 
     const baseWhere = and(
       eq(m.businessId, businessId),
+      isNull(m.deletedAt),
       includeDisabled ? undefined : isNull(m.disabledAt),
     );
 
@@ -113,6 +115,15 @@ export class MembershipsRepository {
 
   async remove(id: string) {
     const [row] = await this.db.delete(m).where(eq(m.id, id)).returning();
+    return row ?? null;
+  }
+
+  async softDelete(id: string) {
+    const [row] = await this.db
+      .update(m)
+      .set({ deletedAt: new Date() })
+      .where(eq(m.id, id))
+      .returning();
     return row ?? null;
   }
 
