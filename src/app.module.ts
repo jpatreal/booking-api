@@ -21,6 +21,7 @@ import { AppCacheModule } from './cache/cache.module';
 
 @Module({
   imports: [
+    AppCacheModule,
     SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
@@ -39,7 +40,6 @@ import { AppCacheModule } from './cache/cache.module';
     LimitsModule,
     BookingsModule,
     RedisModule,
-    AppCacheModule,
   ],
   controllers: [AppController],
   providers: [AppService],

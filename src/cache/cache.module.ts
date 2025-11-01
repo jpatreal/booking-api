@@ -8,6 +8,7 @@ import redisConfig from '../config/redis.config';
   imports: [
     ConfigModule.forFeature(redisConfig),
     CacheModule.registerAsync({
+      isGlobal: true,
       imports: [ConfigModule.forFeature(redisConfig)],
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => {
@@ -18,11 +19,10 @@ import redisConfig from '../config/redis.config';
             ttl: 30,
             pingInterval: 0,
           }),
-          isGlobal: true,
+          // isGlobal: true,
         };
       },
     }),
   ],
-  exports: [CacheModule],
 })
 export class AppCacheModule {}

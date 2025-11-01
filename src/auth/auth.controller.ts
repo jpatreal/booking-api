@@ -24,6 +24,8 @@ import { JwtAccessPayload } from '@app/common/interfaces';
 import { JwtAccessGuard } from './guards/jwt-access.guards';
 
 import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
+import { RedisKeys } from '@app/cache/redis-keys';
 
 @Controller('auth')
 export class AuthController {
@@ -31,10 +33,26 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly rl: RateLimitService,
   ) {}
 
+  private getClientIp(req: Request) {
+    const xfwd = (req.headers['x-forwarded-for'] as string) || '';
+    const firstHop = xfwd
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)[0];
+    return firstHop || (req.ip ?? req.socket.remoteAddress ?? 'unknown');
+  }
+
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
+  async register(@Body() dto: RegisterDto, @Req() req: Request) {
+    const ip = String(this.getClientIp(req));
+    const ok = await this.rl.hit(RedisKeys.rlRegisterIP(ip), 10, 60);
+    if (!ok) {
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+    }
+
     const { user, biz } = await this.auth.register(dto);
     return { user: { id: user.id, email: user.email }, business: biz };
   }

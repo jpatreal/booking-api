@@ -1,14 +1,12 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import type { Cache } from 'cache-manager';
 import {
+  Injectable,
   BadRequestException,
   ConflictException,
-  Inject,
-  Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { UserRepository } from './user.repository';
+import { UsersCache } from './users.cache';
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -18,43 +16,18 @@ function normalizeEmail(email: string) {
 export class UsersService {
   constructor(
     private readonly repo: UserRepository,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly usersCache: UsersCache,
   ) {}
 
-  private async cacheGet<T>(key: string): Promise<T | undefined> {
-    return (await this.cache.get<T>(key)) ?? undefined;
-  }
-  private async cacheSet<T>(key: string, value: T, ttl = 30) {
-    await this.cache.set(key, value, ttl);
-  }
-  private async cacheDel(key: string) {
-    await this.cache.del(key);
-  }
-
   async findById(id: string) {
-    const key = `user:id:${id}`;
-    const cached = await this.cacheGet<unknown>(key);
-    if (cached) return cached;
-
-    const user = await this.repo.findById(id);
+    const user = await this.usersCache.getById(id);
     if (!user) throw new NotFoundException('User not found');
-
-    await this.cacheSet(key, user);
-    await this.cacheSet(`user:email:${user.email}`, user);
     return user;
   }
 
   async findByEmail(email: string) {
-    const norm = normalizeEmail(email);
-    const key = `user:email:${norm}`;
-    const cached = await this.cacheGet<unknown>(key);
-    if (cached) return cached;
-
-    const user = await this.repo.findByEmail(norm);
+    const user = await this.usersCache.getByEmail(email);
     if (!user) throw new NotFoundException('User not found');
-
-    await this.cacheSet(key, user);
-    await this.cacheSet(`user:id:${user.id}`, user);
     return user;
   }
 
@@ -72,8 +45,7 @@ export class UsersService {
 
     try {
       const created = await this.repo.insert(data);
-      await this.cacheSet(`user:id:${created.id}`, created);
-      await this.cacheSet(`user:email:${created.email}`, created);
+      await this.usersCache.prime(created);
       return created;
     } catch (e: any) {
       if (e?.code === '23505') {
@@ -106,12 +78,13 @@ export class UsersService {
     }
 
     try {
+      const current = await this.repo.findById(id);
+      if (!current) throw new NotFoundException('User not found');
+
       const updated = await this.repo.updateById(id, data);
       if (!updated) throw new NotFoundException('User not found');
 
-      await this.cacheDel(`user:id:${id}`);
-      if (updated.email) await this.cacheDel(`user:email:${updated.email}`);
-
+      await this.usersCache.swapEmailKeys(current.email, updated);
       return updated;
     } catch (e: any) {
       if (e?.code === '23505') {

@@ -14,6 +14,8 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { SessionsRepository } from './sessions.repository';
 import { MembershipInviteService } from '@app/memberships/membership-invite.service';
 import { MembershipsModule } from '@app/memberships/memberships.module';
+import { AuthCache } from './auth.cache';
+import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { MembershipsModule } from '@app/memberships/memberships.module';
     GoogleStrategy,
     SessionsRepository,
     MembershipInviteService,
+    AuthCache,
+    RateLimitService,
   ],
   exports: [JwtModule, MailerService],
 })

@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { TokensService } from './tokens.service';
@@ -35,6 +37,9 @@ import { assertUserEnabled } from '@app/common/utils/tenant.util';
 import { addDays } from 'date-fns';
 import { MembershipInviteService } from '@app/memberships/membership-invite.service';
 
+import { AuthCache } from './auth.cache';
+import { RedisKeys } from '../cache/redis-keys';
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -61,6 +66,8 @@ export class AuthService {
     private readonly tokens: TokensService,
     private readonly mailer: MailerService,
     private readonly membershipInvites: MembershipInviteService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly authCache: AuthCache,
   ) {}
 
   async register(dto: RegisterInput) {
@@ -82,7 +89,7 @@ export class AuthService {
     }
 
     if (hasInvite) {
-      const invite = await this.membershipInvites.verifyToken(dto.inviteToken!);
+      const invite = await this.verifyInviteTokenCached(dto.inviteToken!);
 
       if (invite.email.toLowerCase() !== normalizedEmail) {
         throw new UnauthorizedAppError(
@@ -134,13 +141,7 @@ export class AuthService {
     }
 
     const keyHash = sha256Base64(dto.registrationKey);
-    const key = await this.db.query.signupKeys.findFirst({
-      where: (t, { eq, or, isNull, gt, and }) =>
-        and(
-          eq(t.codeHash, keyHash),
-          or(isNull(t.expiresAt), gt(t.expiresAt, now)),
-        ),
-    });
+    const key = await this.getSignupKeyByHashCached(keyHash);
     if (!key)
       throw new UnauthorizedAppError('Invalid or expired registration key');
 
@@ -222,10 +223,17 @@ export class AuthService {
   async validateLocalUser(email: string, password: string) {
     const normalizedEmail = normalizeEmail(email);
 
+    const negKey = RedisKeys.unknownEmailNeg(normalizedEmail);
+    if (await this.cache.get(negKey)) return null;
+
     const user = await this.db.query.users.findFirst({
       where: (t, { eq }) => eq(t.email, normalizedEmail),
     });
-    if (!user?.passwordHash) return null;
+
+    if (!user?.passwordHash) {
+      await this.cache.set(negKey, 1, 60);
+      return null;
+    }
 
     const ok = await argon2.verify(user.passwordHash, password);
     if (!ok) return null;
@@ -239,17 +247,10 @@ export class AuthService {
     req?: any,
   ) {
     await assertUserEnabled(this.db, userId);
-    const u = await this.db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (!u?.[0]?.email) {
+    const email = await this.authCache.getUserEmailById(userId);
+    if (!email) {
       throw new NotFoundAppError('User not found', { userId });
     }
-
-    const email = u[0].email;
 
     const payload = { sub: userId, email, mb: membership || null };
     const accessToken = await this.tokens.issueAccess(payload);
@@ -326,15 +327,20 @@ export class AuthService {
     const hash = sha256Base64(raw);
     const now = new Date();
 
+    const locked = await this.guardSingleUse(hash, 3600);
+    if (!locked) {
+      throw new UnauthorizedAppError('Invalid or expired token', { type });
+    }
+
     const tok = await this.db.query.verificationTokens.findFirst({
       where: (t, { and, eq, gt }) =>
         and(eq(t.tokenHash, hash), eq(t.type, type), gt(t.expiresAt, now)),
     });
 
     if (!tok) {
-      throw new UnauthorizedAppError('Invalid or expired token', {
-        type,
-      });
+      const client = (this.cache as any).store?.client;
+      if (client) await client.del(RedisKeys.singleUseToken(hash));
+      throw new UnauthorizedAppError('Invalid or expired token', { type });
     }
 
     await this.db
@@ -425,5 +431,51 @@ export class AuthService {
       .update(users)
       .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, userId));
+  }
+
+  // ================================ Cache private helpers ================================
+
+  private async getSignupKeyByHashCached(hash: string) {
+    const keyName = RedisKeys.signupKeyByHash(hash);
+    const cached = await this.cache.get<any>(keyName);
+    if (cached) return cached;
+
+    const now = new Date();
+    const key = await this.db.query.signupKeys.findFirst({
+      where: (t, { eq, or, isNull, gt, and }) =>
+        and(
+          eq(t.codeHash, hash),
+          or(isNull(t.expiresAt), gt(t.expiresAt, now)),
+        ),
+    });
+    if (!key) return null;
+
+    const ttl = key.expiresAt
+      ? Math.max(1, Math.floor((+key.expiresAt - Date.now()) / 1000))
+      : 86400;
+    await this.cache.set(keyName, key, Math.min(ttl, 86400));
+    return key;
+  }
+
+  private async verifyInviteTokenCached(token: string) {
+    const k = RedisKeys.inviteToken(token);
+    const cached = await this.cache.get<any>(k);
+    if (cached) return cached;
+    const invite = await this.membershipInvites.verifyToken(token);
+    await this.cache.set(k, invite, 600); // 10m
+    return invite;
+  }
+
+  private async guardSingleUse(hash: string, ttlSec = 3600) {
+    const client = (this.cache as any).store?.client;
+    if (!client) return true;
+    const ok = await client.set(
+      RedisKeys.singleUseToken(hash),
+      '1',
+      'EX',
+      ttlSec,
+      'NX',
+    );
+    return ok === 'OK';
   }
 }
