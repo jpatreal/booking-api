@@ -1,0 +1,15 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: booking-redis
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD:-devpass}
+                   --appendonly yes
+                   --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+volumes:
+  redisdata:

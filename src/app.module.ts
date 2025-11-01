@@ -16,6 +16,8 @@ import { StaffModule } from './staff/staff.module';
 import { AdminModule } from './admin/admin.module';
 import { LimitsModule } from './billing/limits.module';
 import { BookingsModule } from './bookings/bookings.module';
+import { RedisModule } from './redis/redis.module';
+import { AppCacheModule } from './cache/cache.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { BookingsModule } from './bookings/bookings.module';
     AdminModule,
     LimitsModule,
     BookingsModule,
+    RedisModule,
+    AppCacheModule,
   ],
   controllers: [AppController],
   providers: [AppService],
