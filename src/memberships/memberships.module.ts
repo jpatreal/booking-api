@@ -8,6 +8,9 @@ import { MembershipInviteService } from './membership-invite.service';
 import { MembershipInviteRepository } from './membership-invite.repository';
 import { MembershipInvitesController } from './membership-invite.controller';
 import { MailerService } from '@app/auth/mailer.service';
+import { MembershipsCache } from './memberships.cache';
+import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
+import { MembershipInvitesCache } from './membership-invite.cache';
 
 @Module({
   providers: [
@@ -18,12 +21,16 @@ import { MailerService } from '@app/auth/mailer.service';
     MembershipInviteService,
     MembershipInviteRepository,
     MailerService,
+    MembershipsCache,
+    MembershipInvitesCache,
+    RateLimitService,
   ],
   controllers: [MembershipsController, MembershipInvitesController],
   exports: [
     MembershipsService,
     MembershipInviteService,
     MembershipInviteRepository,
+    MembershipInvitesCache,
   ],
 })
 export class MembershipsModule {}

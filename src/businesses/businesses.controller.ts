@@ -21,16 +21,25 @@ import { BusinessAccessGuard } from '@app/common/guards/business-access.guard';
 import { RolesGuard } from '@app/common/guards/roles.guards';
 import { Roles } from '@app/common/decorators/roles.decorator';
 import { BusinessPlanGuard } from '@app/auth/guards/business-plan.guard';
+import { BusinessesCache } from './business.cache';
 
 @UseGuards(JwtAccessGuard, BusinessPlanGuard)
 @Controller('businesses')
 export class BusinessesController {
-  constructor(private readonly svc: BusinessesService) {}
+  constructor(
+    private readonly svc: BusinessesService,
+    private readonly bizCache: BusinessesCache,
+  ) {}
 
   @Post()
   @ResMessage('Business created successfully')
-  create(@Body() dto: CreateBusinessDto, @CurrentUser() user: any) {
-    return this.svc.createOwnedForUser(user.sub, dto, dto.hours?.items ?? []);
+  async create(@Body() dto: CreateBusinessDto, @CurrentUser() user: any) {
+    return this.svc
+      .createOwnedForUser(user.sub, dto, dto.hours?.items ?? [])
+      .then(async (r) => {
+        await this.bizCache.bumpListVersion(user.sub);
+        return r;
+      });
   }
 
   @UseGuards(BusinessAccessGuard, RolesGuard)

@@ -8,14 +8,14 @@ import type { DB } from '@app/db';
 
 import { roleEnum } from '@app/db/schema';
 import { randomToken, sha256Base64 } from '@app/common/utils/crypto.util';
-// import { MembershipsService } from './memberships.service';
-// import { MailerService } from '@app/auth/mailer.service';
 
 import { MembershipInviteRepository } from './membership-invite.repository';
 import {
   ConflictAppError,
   NotFoundAppError,
 } from '@app/common/errors/specialized.errors';
+
+import { MembershipInvitesCache } from './membership-invite.cache';
 
 type Role = (typeof roleEnum.enumValues)[number];
 
@@ -43,8 +43,7 @@ export class MembershipInviteService {
     @Inject(DRIZZLE) private readonly db: DB,
     private readonly config: ConfigService,
     private readonly repo: MembershipInviteRepository,
-    // private readonly memberships: MembershipsService,
-    // private readonly mailer: MailerService,
+    private readonly cache: MembershipInvitesCache,
   ) {
     this.appBaseUrl =
       this.config.get<string>('app.webBaseUrl')?.replace(/\/+$/, '') ||
@@ -63,9 +62,8 @@ export class MembershipInviteService {
       input.businessId,
       email,
     );
-    if (existingMember) {
+    if (existingMember)
       throw new ConflictAppError('User is already a member of this business');
-    }
 
     const pending = await this.repo.findActiveInviteByEmail(
       input.businessId,
@@ -94,6 +92,8 @@ export class MembershipInviteService {
       link,
       expiresAt,
     });
+
+    await this.cache.bumpListVer(input.businessId);
 
     return {
       id: invite.id,
@@ -138,6 +138,9 @@ export class MembershipInviteService {
       expiresAt: updated.expiresAt,
     });
 
+    await this.cache.invalidateToken(invite.tokenHash);
+    await this.cache.bumpListVer(updated.businessId);
+
     return {
       id: updated.id,
       businessId: updated.businessId,
@@ -157,6 +160,10 @@ export class MembershipInviteService {
       throw new BadRequestException('Invite already accepted');
 
     const updated = await this.repo.expireInviteNow(invite.id, now);
+
+    await this.cache.invalidateToken(invite.tokenHash);
+    await this.cache.bumpListVer(invite.businessId);
+
     return updated;
   }
 
@@ -164,12 +171,17 @@ export class MembershipInviteService {
     const now = new Date();
     const tokenHash = sha256Base64(rawToken);
 
-    const invite = await this.repo.getInviteByTokenHash(tokenHash, this.db);
+    const invite = await this.cache.getByTokenHash(tokenHash, async () =>
+      this.repo.getInviteByTokenHash(tokenHash, this.db),
+    );
+
     if (!invite) throw new NotFoundAppError('Invite not found');
     if (invite.acceptedAt)
       throw new BadRequestException('Invite already accepted');
-    if (invite.expiresAt <= now)
+    if (invite.expiresAt <= now) {
+      await this.cache.invalidateToken(tokenHash);
       throw new BadRequestException('Invite expired');
+    }
 
     return invite;
   }
@@ -178,7 +190,7 @@ export class MembershipInviteService {
     const now = new Date();
     const tokenHash = sha256Base64(rawToken);
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const invite = await this.repo.getInviteByTokenHash(tokenHash, tx);
       if (!invite) throw new NotFoundAppError('Invite not found');
       if (invite.acceptedAt)
@@ -196,7 +208,12 @@ export class MembershipInviteService {
       );
       if (already) {
         await this.repo.markInviteAccepted(invite.id, now, tx);
-        return { ok: true, membershipId: already.id, alreadyMember: true };
+        return {
+          ok: true,
+          membershipId: already.id,
+          alreadyMember: true,
+          bizId: invite.businessId,
+        };
       }
 
       const inserted = await this.repo.createMembership(
@@ -206,13 +223,31 @@ export class MembershipInviteService {
 
       await this.repo.markInviteAccepted(invite.id, now, tx);
 
-      return { ok: true, membershipId: inserted.id, alreadyMember: false };
+      return {
+        ok: true,
+        membershipId: inserted.id,
+        alreadyMember: false,
+        bizId: invite.businessId,
+      };
     });
+
+    await this.cache.invalidateToken(tokenHash);
+    await this.cache.bumpListVer(result.bizId);
+
+    return {
+      ok: result.ok,
+      membershipId: result.membershipId,
+      alreadyMember: result.alreadyMember,
+    };
   }
 
   async listPendingByBusiness(businessId: string) {
     const now = new Date();
-    return this.repo.listPendingByBusiness(businessId, now);
+    return this.cache.getPendingList(
+      businessId,
+      async () => this.repo.listPendingByBusiness(businessId, now),
+      15,
+    );
   }
 
   private buildAcceptUrl(rawToken: string) {
@@ -228,10 +263,9 @@ export class MembershipInviteService {
   }) {
     const subject = `You're invited to join ${params.businessName}`;
     const html = `<p>You've been invited as <b>${params.role}</b> to <b>${params.businessName}</b>.</p>
-             <p><a href="${params.link}">Accept invite</a></p>
-             <p>This link expires on <code>${params.expiresAt.toISOString()}</code>.</p>
-             <p>If you didn't expect this, you can ignore this email.</p>`;
-
+       <p><a href="${params.link}">Accept invite</a></p>
+       <p>This link expires on <code>${params.expiresAt.toISOString()}</code>.</p>
+       <p>If you didn't expect this, you can ignore this email.</p>`;
     // await this.mailer.sendMail(params.to, subject, html);
     this.logger.log(
       `Sent invite email to ${params.to} with subject "${subject}" and link: ${params.link}`,

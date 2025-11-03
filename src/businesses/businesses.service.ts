@@ -10,12 +10,16 @@ import {
   ListParams,
   UpdateBusinessInput,
 } from './businesses.repository';
+import { BusinessesCache } from './business.cache';
 
 const OWNER_MANAGER_LIMIT = 2;
 
 @Injectable()
 export class BusinessesService {
-  constructor(private readonly repo: BusinessesRepository) {}
+  constructor(
+    private readonly repo: BusinessesRepository,
+    private readonly bizCache: BusinessesCache,
+  ) {}
 
   async createOwnedForUser(
     userId: string,
@@ -29,7 +33,14 @@ export class BusinessesService {
       );
     }
     try {
-      return await this.repo.createOwnedWithHours(userId, input, hours);
+      const created = await this.repo.createOwnedWithHours(
+        userId,
+        input,
+        hours,
+      );
+      await this.bizCache.bumpListVersion(userId);
+      await this.bizCache.invalidateEntity(created.id, created.slug);
+      return created;
     } catch (e: any) {
       if (e?.code === '23505')
         throw new BadRequestException(
@@ -39,8 +50,16 @@ export class BusinessesService {
     }
   }
 
-  get(businessId: string) {
-    return this.repo.findWithHours(businessId);
+  async get(idOrSlug: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+    const data = isUuid
+      ? await this.bizCache.getById(idOrSlug)
+      : await this.bizCache.getBySlug(idOrSlug);
+    if (!data) throw new NotFoundException('Business not found');
+    return data;
   }
 
   async require(idOrSlug: string) {
@@ -49,21 +68,31 @@ export class BusinessesService {
     return row;
   }
 
-  list(user: string, params: ListParams) {
-    return this.repo.list(user, params);
+  async list(user: string, params: ListParams) {
+    return this.bizCache.getList(
+      user,
+      params,
+      async () => await this.repo.list(user, params),
+      15,
+    );
   }
 
-  listHours(businessId: string) {
-    return this.repo.listHours(businessId);
+  async listHours(businessId: string) {
+    return this.bizCache.getHours(businessId);
   }
 
   async update(id: string, patch: UpdateBusinessInput, hours?: HourItem[]) {
     try {
+      const before = await this.repo.findById(id);
+      if (!before) throw new NotFoundException('Business not found');
+
       await this.repo.update(id, patch);
       if (hours && hours.length > 0) {
         await this.repo.replaceHours(id, hours);
       }
       const withHours = await this.repo.findWithHours(id);
+
+      await this.bizCache.invalidateEntity(id, before.slug);
       return withHours!;
     } catch (e: any) {
       if (e?.code === '23505')
@@ -76,18 +105,25 @@ export class BusinessesService {
 
   async replaceHours(businessId: string, hours: HourItem[]) {
     await this.repo.replaceHours(businessId, hours);
+    await this.bizCache.invalidateEntity(businessId);
     return this.repo.findWithHours(businessId);
   }
 
-  softDelete(id: string) {
-    return this.repo.softDelete(id);
+  async softDelete(id: string) {
+    const row = await this.repo.softDelete(id);
+    await this.bizCache.invalidateEntity(id, row.slug);
+    return row;
   }
 
-  restore(id: string) {
-    return this.repo.restore(id);
+  async restore(id: string) {
+    const row = await this.repo.restore(id);
+    await this.bizCache.invalidateEntity(id, row.slug);
+    return row;
   }
 
-  hardDelete(id: string) {
-    return this.repo.hardDelete(id);
+  async hardDelete(id: string) {
+    const row = await this.repo.hardDelete(id);
+    await this.bizCache.invalidateEntity(id, row.slug);
+    return row;
   }
 }

@@ -12,6 +12,7 @@ import { DRIZZLE } from '@app/db/db.module';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { QueryServiceDto } from './dto/query-service.dto';
 import { LimitsService } from '@app/billing/limit.service';
+import { ServicesCache } from './services.cache';
 
 @Injectable()
 export class ServicesService {
@@ -19,24 +20,30 @@ export class ServicesService {
     private readonly repo: ServiceRepository,
     @Inject(DRIZZLE) private readonly db: DB,
     private readonly limits: LimitsService,
+    private readonly svcCache: ServicesCache,
   ) {}
 
   async list(businessId: string, query?: QueryServiceDto) {
     const { q, page, pageSize } = query ?? {};
-    const result = await this.repo.paginateServices(
-      { businessId, q },
-      { page, pageSize },
+
+    const result = await this.svcCache.getList(
+      businessId,
+      { q, page, pageSize },
+      async () => {
+        const raw = await this.repo.paginateServices(
+          { businessId, q },
+          { page, pageSize },
+        );
+        const rows = raw.rows.map((s) => ({
+          ...s,
+          price: this.fromCents(s.priceCents),
+        }));
+        return { ...raw, rows };
+      },
+      15,
     );
 
-    const rows = result.rows.map((s) => ({
-      ...s,
-      price: this.fromCents(s.priceCents),
-    }));
-
-    return {
-      ...result,
-      rows,
-    };
+    return result;
   }
 
   private toCents(v: number | string) {
@@ -52,7 +59,7 @@ export class ServicesService {
     await this.limits.assertCanCreateService(businessId);
     const slug = await generateUniqueSlug(this.db, services, dto.name);
     try {
-      return await this.repo.insert({
+      const created = await this.repo.insert({
         businessId,
         name: dto.name,
         slug,
@@ -63,6 +70,9 @@ export class ServicesService {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+
+      await this.svcCache.touchLists(businessId);
+      return created;
     } catch (e: any) {
       if (
         e?.code === '23505' &&
@@ -75,12 +85,9 @@ export class ServicesService {
   }
 
   async findOneForBusiness(businessId: string, id: string) {
-    const service = await this.repo.findByIdOrThrow(businessId, id);
-
-    return {
-      ...service,
-      price: this.fromCents(service.priceCents),
-    };
+    const service = await this.svcCache.getById(businessId, id);
+    if (!service) throw new NotFoundException('Service not found');
+    return { ...service, price: this.fromCents(service.priceCents) };
   }
 
   async update(
@@ -116,20 +123,31 @@ export class ServicesService {
     );
 
     if (!updated) throw new NotFoundException('Service not found');
+
+    await this.svcCache.invalidateById(businessId, id);
+    await this.svcCache.touchLists(businessId);
     return updated;
   }
 
   async remove(businessId: string, id: string) {
-    return this.repo.softDelete(businessId, id);
+    const res = await this.repo.softDelete(businessId, id);
+    await this.svcCache.invalidateById(businessId, id);
+    await this.svcCache.touchLists(businessId);
+    return res;
   }
 
   async restore(businessId: string, id: string) {
-    return this.repo.restore(businessId, id);
+    const res = await this.repo.restore(businessId, id);
+    await this.svcCache.invalidateById(businessId, id);
+    await this.svcCache.touchLists(businessId);
+    return res;
   }
 
   async hardDelete(businessId: string, id: string) {
     const deleted = await this.repo.deleteById(id, { businessId });
     if (!deleted) throw new NotFoundException('Service not found');
+    await this.svcCache.invalidateById(businessId, id);
+    await this.svcCache.touchLists(businessId);
     return deleted;
   }
 }

@@ -1,21 +1,29 @@
-export const RedisKeys = {
-  userEmailById: (id: string) => `auth:user-email:${id}`,
-  unknownEmailNeg: (email: string) => `auth:unknown-email:${email}`,
-  signupKeyByHash: (hash: string) => `auth:signup-key:${hash}`,
-  inviteToken: (token: string) => `auth:invite:${token}`,
-  singleUseToken: (hash: string) => `auth:onet:${hash}`,
-  rlLoginIP: (ip: string) => `rl:login:ip:${ip}`,
-  rlLoginEmail: (email: string) => `rl:login:email:${email}`,
-  rlRefreshIP: (ip: string) => `rl:refresh:ip:${ip}`,
-  rlRegisterIP: (ip: string) => `rl:register:ip:${ip}`,
-  rlRequestResetIP: (ip: string) => `rl:reqreset:ip:${ip}`,
-  rlRequestResetEmail: (email: string) => `rl:reqreset:email:${email}`,
+import { AuthKeys } from './keys/auth.keys';
+import { UserKeys } from './keys/users.keys';
+import { ServiceKeys } from './keys/services.keys';
+import { BusinessKeys } from './keys/businesses.keys';
+import { StaffKeys } from './keys/staff.keys';
+import { MembershipKeys } from './keys/memberships.keys';
+import { InviteKeys } from './keys/membership-invites.keys';
 
-  // Users
-  userById: (id: string) => `user:id:${id}`,
-  userByEmail: (email: string) => `user:email:${email}`,
-  userIdNeg: (id: string) => `user:id:neg:${id}`,
-  userEmailNeg: (email: string) => `user:email:neg:${email}`,
-  userLockById: (id: string) => `lock:user:id:${id}`,
-  userLockByEmail: (e: string) => `lock:user:email:${e}`,
+export const RedisKeys = {
+  ...AuthKeys,
+  ...UserKeys,
+  ...ServiceKeys,
+  ...BusinessKeys,
+  ...StaffKeys,
+  ...MembershipKeys,
+  ...InviteKeys,
+} as const;
+
+export {
+  AuthKeys,
+  UserKeys,
+  ServiceKeys,
+  BusinessKeys,
+  StaffKeys,
+  MembershipKeys,
+  InviteKeys,
 };
+
+export type RedisKeyFns = typeof RedisKeys;

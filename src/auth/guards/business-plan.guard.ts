@@ -21,7 +21,7 @@ export class BusinessPlanGuard implements CanActivate {
       req.headers['x-business-id'] ||
       req.params['businessId'] ||
       req.query['businessId'];
-    // if (!bizId) return true;
+    if (!bizId) return true;
 
     const [row] = await this.db
       .select()
