@@ -8,7 +8,9 @@ import {
   Post,
   Query,
   UseGuards,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { BusinessesService } from './businesses.service';
 import { CreateBusinessDto } from './dto/create-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
@@ -20,20 +22,47 @@ import { ResMessage } from '@app/common/http/response.decorator';
 import { BusinessAccessGuard } from '@app/common/guards/business-access.guard';
 import { RolesGuard } from '@app/common/guards/roles.guards';
 import { Roles } from '@app/common/decorators/roles.decorator';
-import { BusinessPlanGuard } from '@app/auth/guards/business-plan.guard';
 import { BusinessesCache } from './business.cache';
 
-@UseGuards(JwtAccessGuard, BusinessPlanGuard)
+import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
+import { RedisKeys } from '@app/cache/redis-keys';
+import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+
+@UseGuards(JwtAccessGuard)
 @Controller('businesses')
 export class BusinessesController {
   constructor(
     private readonly svc: BusinessesService,
     private readonly bizCache: BusinessesCache,
+    private readonly rl: RateLimitService,
   ) {}
+
+  private getClientIp(req: Request) {
+    const xfwd = (req.headers['x-forwarded-for'] as string) || '';
+    const first = xfwd
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)[0];
+    return first || (req.ip ?? req.socket.remoteAddress ?? 'unknown');
+  }
 
   @Post()
   @ResMessage('Business created successfully')
-  async create(@Body() dto: CreateBusinessDto, @CurrentUser() user: any) {
+  async create(
+    @Body() dto: CreateBusinessDto,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    const ip = this.getClientIp(req);
+    const okUser = await this.rl.hit(
+      RedisKeys.rlBizCreateUser(user.sub),
+      12,
+      60,
+    );
+    const okIP = await this.rl.hit(RedisKeys.rlBizCreateIP(ip), 8, 60);
+    if (!okUser || !okIP)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
     return this.svc
       .createOwnedForUser(user.sub, dto, dto.hours?.items ?? [])
       .then(async (r) => {
@@ -46,16 +75,44 @@ export class BusinessesController {
   @Roles('OWNER', 'MANAGER')
   @Post(':businessId/hours/replace')
   @ResMessage('Business hours replaced successfully')
-  replaceHours(
+  async replaceHours(
     @Param() param: BusinessIdDto,
     @Body() body: BusinessHoursPayloadDto,
+    @Req() req: Request,
   ) {
+    const ip = this.getClientIp(req);
+    const ok1 = await this.rl.hit(
+      RedisKeys.rlBizReplaceHours(param.businessId),
+      30,
+      60,
+    );
+    const ok2 = await this.rl.hit(
+      RedisKeys.rlBizReplaceHoursIP(param.businessId, ip),
+      15,
+      60,
+    );
+    if (!ok1 || !ok2)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
     return this.svc.replaceHours(param.businessId, body.items ?? []);
   }
 
   @Get()
   @ResMessage('Businesses retrieved successfully')
-  list(@Query() q: ListBusinessQuery, @CurrentUser() user: any) {
+  async list(
+    @Query() q: ListBusinessQuery,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    const ip = this.getClientIp(req);
+    const ok = await this.rl.hit(
+      RedisKeys.rlBizListUserIP(user.sub, ip),
+      180,
+      60,
+    );
+    if (!ok)
+      throw new UnauthorizedAppError('Too many requests. Try again shortly.');
+
     return this.svc.list(user.sub, {
       q: q.q,
       page: q.page,
@@ -68,7 +125,15 @@ export class BusinessesController {
   @Roles('OWNER', 'MANAGER', 'STAFF')
   @Get(':businessId/hours')
   @ResMessage('Business hours retrieved successfully')
-  getHours(@Param() param: BusinessIdDto) {
+  async getHours(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok = await this.rl.hit(
+      RedisKeys.rlBizHoursIP(param.businessId, ip),
+      240,
+      60,
+    );
+    if (!ok)
+      throw new UnauthorizedAppError('Too many requests. Try again shortly.');
     return this.svc.listHours(param.businessId);
   }
 
@@ -76,7 +141,15 @@ export class BusinessesController {
   @Roles('OWNER', 'MANAGER', 'STAFF')
   @Get(':businessId')
   @ResMessage('Business retrieved successfully')
-  async get(@Param() param: BusinessIdDto) {
+  async get(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok = await this.rl.hit(
+      RedisKeys.rlBizGetIP(param.businessId, ip),
+      240,
+      60,
+    );
+    if (!ok)
+      throw new UnauthorizedAppError('Too many requests. Try again shortly.');
     return await this.svc.get(param.businessId);
   }
 
@@ -84,7 +157,24 @@ export class BusinessesController {
   @Roles('OWNER', 'MANAGER')
   @Patch(':businessId')
   @ResMessage('Business updated successfully')
-  update(@Param() param: BusinessIdDto, @Body() dto: UpdateBusinessDto) {
+  async update(
+    @Param() param: BusinessIdDto,
+    @Body() dto: UpdateBusinessDto,
+    @Req() req: Request,
+  ) {
+    const ip = this.getClientIp(req);
+    const ok1 = await this.rl.hit(
+      RedisKeys.rlBizUpdate(param.businessId),
+      60,
+      60,
+    );
+    const ok2 = await this.rl.hit(
+      RedisKeys.rlBizUpdateIP(param.businessId, ip),
+      30,
+      60,
+    );
+    if (!ok1 || !ok2)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
     return this.svc.update(param.businessId, dto, dto.hours?.items ?? []);
   }
 
@@ -92,7 +182,20 @@ export class BusinessesController {
   @Roles('OWNER')
   @Delete(':businessId')
   @ResMessage('Business deleted successfully')
-  softDelete(@Param() param: BusinessIdDto) {
+  async softDelete(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok1 = await this.rl.hit(
+      RedisKeys.rlBizDelete(param.businessId),
+      30,
+      60,
+    );
+    const ok2 = await this.rl.hit(
+      RedisKeys.rlBizDeleteIP(param.businessId, ip),
+      20,
+      60,
+    );
+    if (!ok1 || !ok2)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
     return this.svc.softDelete(param.businessId);
   }
 
@@ -100,7 +203,20 @@ export class BusinessesController {
   @Roles('OWNER')
   @Post(':businessId/restore')
   @ResMessage('Business restored successfully')
-  restore(@Param() param: BusinessIdDto) {
+  async restore(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok1 = await this.rl.hit(
+      RedisKeys.rlBizRestore(param.businessId),
+      20,
+      60,
+    );
+    const ok2 = await this.rl.hit(
+      RedisKeys.rlBizRestoreIP(param.businessId, ip),
+      15,
+      60,
+    );
+    if (!ok1 || !ok2)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
     return this.svc.restore(param.businessId);
   }
 
@@ -108,7 +224,20 @@ export class BusinessesController {
   @Roles('OWNER')
   @Delete(':businessId/hard')
   @ResMessage('Business permanently deleted successfully')
-  hardDelete(@Param() param: BusinessIdDto) {
+  async hardDelete(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok1 = await this.rl.hit(
+      RedisKeys.rlBizDelete(param.businessId),
+      20,
+      60,
+    );
+    const ok2 = await this.rl.hit(
+      RedisKeys.rlBizDeleteIP(param.businessId, ip),
+      10,
+      60,
+    );
+    if (!ok1 || !ok2)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
     return this.svc.hardDelete(param.businessId);
   }
 }

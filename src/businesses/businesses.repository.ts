@@ -115,25 +115,27 @@ export class BusinessesRepository {
   ) {
     const slug = await generateUniqueSlug(this.db, businesses, input.name);
 
-    return this.db.transaction(async (tx) => {
-      const [biz] = await tx
+    const biz = await this.db.transaction(async (tx) => {
+      const [created] = await tx
         .insert(businesses)
         .values({ name: input.name, slug, timezone: input.timezone ?? 'UTC' })
         .returning();
 
       await tx.insert(memberships).values({
         userId: ownerUserId,
-        businessId: biz.id,
+        businessId: created.id,
         role: 'OWNER',
       });
 
-      if (hours && hours.length > 0) {
-        await this.replaceHours(biz.id, hours, tx);
+      if (hours?.length) {
+        await this.replaceHours(created.id, hours, tx);
       }
 
-      const hrs = await this.listHours(biz.id);
-      return { ...biz, hours: hrs };
+      return created;
     });
+
+    const hrs = await this.listHours(biz.id);
+    return { ...biz, hours: hrs };
   }
 
   async create(input: CreateBusinessInput) {
