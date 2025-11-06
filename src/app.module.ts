@@ -18,6 +18,7 @@ import { LimitsModule } from './billing/limits.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { RedisModule } from './redis/redis.module';
 import { AppCacheModule } from './cache/cache.module';
+import { AuditLogModule } from './audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AppCacheModule } from './cache/cache.module';
     LimitsModule,
     BookingsModule,
     RedisModule,
+    AuditLogModule,
   ],
   controllers: [AppController],
   providers: [AppService],

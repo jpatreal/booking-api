@@ -16,6 +16,7 @@ import {
 } from '@app/common/errors/specialized.errors';
 
 import { MembershipInvitesCache } from './membership-invite.cache';
+import { AuditLogService } from '@app/audit-log/audit-log.service';
 
 type Role = (typeof roleEnum.enumValues)[number];
 
@@ -44,13 +45,14 @@ export class MembershipInviteService {
     private readonly config: ConfigService,
     private readonly repo: MembershipInviteRepository,
     private readonly cache: MembershipInvitesCache,
+    private readonly audit: AuditLogService,
   ) {
     this.appBaseUrl =
       this.config.get<string>('app.webBaseUrl')?.replace(/\/+$/, '') ||
       'http://localhost:5173';
   }
 
-  async createInvite(input: CreateInviteInput) {
+  async createInvite(input: CreateInviteInput, actorUserId?: string) {
     const email = input.email.trim().toLowerCase();
     const ttl = input.ttlHours ?? this.defaultTtlHours;
     const now = new Date();
@@ -84,6 +86,19 @@ export class MembershipInviteService {
       expiresAt,
     });
 
+    await this.audit.log({
+      businessId: input.businessId,
+      actorUserId,
+      action: 'invite.create',
+      entity: 'MembershipInvite',
+      entityId: invite.id,
+      meta: this.audit.buildMeta({
+        email,
+        role: input.role,
+        expiresAt,
+      }),
+    });
+
     const link = this.buildAcceptUrl(rawToken);
     await this.sendInviteEmail({
       to: email,
@@ -106,7 +121,7 @@ export class MembershipInviteService {
     };
   }
 
-  async resendInvite(input: ResendInviteInput) {
+  async resendInvite(input: ResendInviteInput, actorUserId?: string) {
     const now = new Date();
     const ttl = input.ttlHours ?? this.defaultTtlHours;
 
@@ -127,6 +142,19 @@ export class MembershipInviteService {
       expiresAt,
     );
     if (!updated) throw new NotFoundAppError('Invite not found');
+
+    await this.audit.log({
+      businessId: updated.businessId,
+      actorUserId,
+      action: 'invite.resend',
+      entity: 'MembershipInvite',
+      entityId: updated.id,
+      meta: this.audit.buildMeta({
+        email: updated.email,
+        role: updated.role,
+        expiresAt: updated.expiresAt,
+      }),
+    });
 
     const business = await this.repo.getBusinessById(updated.businessId);
     const link = this.buildAcceptUrl(rawToken);
@@ -152,7 +180,7 @@ export class MembershipInviteService {
     };
   }
 
-  async cancelInvite(inviteId: string) {
+  async cancelInvite(inviteId: string, actorUserId?: string) {
     const now = new Date();
     const invite = await this.repo.getInviteById(inviteId);
     if (!invite) throw new NotFoundAppError('Invite not found');
@@ -160,6 +188,19 @@ export class MembershipInviteService {
       throw new BadRequestException('Invite already accepted');
 
     const updated = await this.repo.expireInviteNow(invite.id, now);
+
+    await this.audit.log({
+      businessId: invite.businessId,
+      actorUserId,
+      action: 'invite.cancel',
+      entity: 'MembershipInvite',
+      entityId: invite.id,
+      meta: this.audit.buildMeta({
+        email: invite.email,
+        role: invite.role,
+        wasAccepted: Boolean(invite.acceptedAt),
+      }),
+    });
 
     await this.cache.invalidateToken(invite.tokenHash);
     await this.cache.bumpListVer(invite.businessId);
@@ -208,6 +249,21 @@ export class MembershipInviteService {
       );
       if (already) {
         await this.repo.markInviteAccepted(invite.id, now, tx);
+
+        await this.audit.logInTx(tx, {
+          businessId: invite.businessId,
+          actorUserId: userId,
+          action: 'invite.accept',
+          entity: 'MembershipInvite',
+          entityId: invite.id,
+          meta: this.audit.buildMeta({
+            email: invite.email,
+            role: invite.role,
+            alreadyMember: true,
+            membershipId: already.id,
+          }),
+        });
+
         return {
           ok: true,
           membershipId: already.id,
@@ -222,6 +278,33 @@ export class MembershipInviteService {
       );
 
       await this.repo.markInviteAccepted(invite.id, now, tx);
+
+      await this.audit.logInTx(tx, {
+        businessId: invite.businessId,
+        actorUserId: userId,
+        action: 'membership.create.fromInvite',
+        entity: 'Membership',
+        entityId: inserted.id,
+        meta: this.audit.buildMeta({
+          inviteId: invite.id,
+          email: invite.email,
+          role: invite.role,
+        }),
+      });
+
+      await this.audit.logInTx(tx, {
+        businessId: invite.businessId,
+        actorUserId: userId,
+        action: 'invite.accept',
+        entity: 'MembershipInvite',
+        entityId: invite.id,
+        meta: this.audit.buildMeta({
+          email: invite.email,
+          role: invite.role,
+          alreadyMember: false,
+          membershipId: inserted.id,
+        }),
+      });
 
       return {
         ok: true,

@@ -13,6 +13,7 @@ import { CreateServiceDto } from './dto/create-service.dto';
 import { QueryServiceDto } from './dto/query-service.dto';
 import { LimitsService } from '@app/billing/limit.service';
 import { ServicesCache } from './services.cache';
+import { AuditLogService } from '@app/audit-log/audit-log.service';
 
 @Injectable()
 export class ServicesService {
@@ -21,6 +22,7 @@ export class ServicesService {
     @Inject(DRIZZLE) private readonly db: DB,
     private readonly limits: LimitsService,
     private readonly svcCache: ServicesCache,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async list(businessId: string, query?: QueryServiceDto) {
@@ -55,7 +57,11 @@ export class ServicesService {
     return Math.round((cents / 100 + Number.EPSILON) * 100) / 100;
   }
 
-  async create(businessId: string, dto: CreateServiceDto) {
+  async create(
+    businessId: string,
+    dto: CreateServiceDto,
+    actorUserId?: string,
+  ) {
     await this.limits.assertCanCreateService(businessId);
     const slug = await generateUniqueSlug(this.db, services, dto.name);
     try {
@@ -69,6 +75,21 @@ export class ServicesService {
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+      });
+
+      await this.auditLog.log({
+        businessId,
+        actorUserId,
+        action: 'service.create',
+        entity: 'Service',
+        entityId: created.id,
+        meta: this.auditLog.buildMeta({
+          name: created.name,
+          slug: created.slug,
+          durationMin: created.durationMin,
+          priceCents: created.priceCents,
+          isActive: created.isActive,
+        }),
       });
 
       await this.svcCache.touchLists(businessId);
@@ -101,6 +122,7 @@ export class ServicesService {
       isActive: boolean;
       price: number | string;
     }>,
+    actorUserId?: string,
   ) {
     const existing = await this.repo.findByIdOrThrow(businessId, id);
 
@@ -115,7 +137,9 @@ export class ServicesService {
         ...dto,
         priceCents:
           dto.priceCents ??
-          (dto.price !== undefined ? +dto.price : existing.priceCents),
+          (dto.price !== undefined
+            ? this.toCents(dto.price)
+            : existing.priceCents),
         slug,
         updatedAt: new Date(),
       },
@@ -124,28 +148,82 @@ export class ServicesService {
 
     if (!updated) throw new NotFoundException('Service not found');
 
+    await this.auditLog.log({
+      businessId,
+      actorUserId,
+      action: 'service.update',
+      entity: 'Service',
+      entityId: id,
+      meta: this.auditLog.buildMeta({
+        before: {
+          name: existing.name,
+          slug: existing.slug,
+          durationMin: existing.durationMin,
+          priceCents: existing.priceCents,
+          isActive: existing.isActive,
+        },
+        after: {
+          name: updated.name,
+          slug: updated.slug,
+          durationMin: updated.durationMin,
+          priceCents: updated.priceCents,
+          isActive: updated.isActive,
+        },
+      }),
+    });
+
     await this.svcCache.invalidateById(businessId, id);
     await this.svcCache.touchLists(businessId);
     return updated;
   }
 
-  async remove(businessId: string, id: string) {
+  async remove(businessId: string, id: string, actorUserId?: string) {
     const res = await this.repo.softDelete(businessId, id);
+
+    await this.auditLog.log({
+      businessId,
+      actorUserId,
+      action: 'service.softDelete',
+      entity: 'Service',
+      entityId: id,
+      meta: this.auditLog.buildMeta({ result: res }),
+    });
+
     await this.svcCache.invalidateById(businessId, id);
     await this.svcCache.touchLists(businessId);
     return res;
   }
 
-  async restore(businessId: string, id: string) {
+  async restore(businessId: string, id: string, actorUserId?: string) {
     const res = await this.repo.restore(businessId, id);
+
+    await this.auditLog.log({
+      businessId,
+      actorUserId,
+      action: 'service.restore',
+      entity: 'Service',
+      entityId: id,
+      meta: this.auditLog.buildMeta({ result: res }),
+    });
+
     await this.svcCache.invalidateById(businessId, id);
     await this.svcCache.touchLists(businessId);
     return res;
   }
 
-  async hardDelete(businessId: string, id: string) {
+  async hardDelete(businessId: string, id: string, actorUserId?: string) {
     const deleted = await this.repo.deleteById(id, { businessId });
     if (!deleted) throw new NotFoundException('Service not found');
+
+    await this.auditLog.log({
+      businessId,
+      actorUserId,
+      action: 'service.hardDelete',
+      entity: 'Service',
+      entityId: id,
+      meta: this.auditLog.buildMeta({ ok: true }),
+    });
+
     await this.svcCache.invalidateById(businessId, id);
     await this.svcCache.touchLists(businessId);
     return deleted;

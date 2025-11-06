@@ -38,6 +38,7 @@ import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 import { Request } from 'express';
 import { RedisKeys } from '@app/cache/redis-keys';
 import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+import { CurrentUser } from '@app/common/decorators/current-user.decorator';
 
 @UseGuards(JwtAccessGuard, BusinessAccessGuard, RolesGuard, BusinessPlanGuard)
 @Controller('businesses/:businessId/staff')
@@ -84,6 +85,7 @@ export class StaffController {
     @Param() params: BusinessIdDto,
     @Body() dto: CreateStaffDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const okBiz = await this.rl.hit(
@@ -98,7 +100,7 @@ export class StaffController {
     );
     if (!okBiz || !okIP)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.service.create(params.businessId, dto);
+    return this.service.create(params.businessId, dto, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
@@ -123,6 +125,7 @@ export class StaffController {
     @Param() params: StaffParamDto,
     @Body() dto: UpdateStaffDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
@@ -137,14 +140,23 @@ export class StaffController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.service.update(params.businessId, params.staffId, dto);
+    return this.service.update(
+      params.businessId,
+      params.staffId,
+      dto,
+      user.sub,
+    );
   }
 
   @Roles('OWNER', 'MANAGER')
   @Delete(':staffId')
   @ResMessage('Staff deleted')
   @HttpCode(HttpStatus.OK)
-  async remove(@Param() params: StaffParamDto, @Req() req: Request) {
+  async remove(
+    @Param() params: StaffParamDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlStaffDelete(params.businessId, params.staffId),
@@ -158,7 +170,7 @@ export class StaffController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.service.remove(params.businessId, params.staffId);
+    return this.service.remove(params.businessId, params.staffId, user.sub);
   }
 
   // ============================== Services ===============================
@@ -174,6 +186,7 @@ export class StaffController {
   async bulkUpsertServices(
     @Param() params: StaffParamDto,
     @Body() dto: BulkUpsertStaffServicesDto,
+    @CurrentUser() user: any,
   ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffSvcUpsert(params.staffId),
@@ -186,13 +199,17 @@ export class StaffController {
       params.businessId,
       params.staffId,
       dto,
+      user.sub,
     );
   }
 
   @Roles('OWNER', 'MANAGER')
   @Delete(':staffId/services/:serviceId')
   @ResMessage('Staff service removed')
-  async deleteService(@Param() params: StaffServiceParamDto) {
+  async deleteService(
+    @Param() params: StaffServiceParamDto,
+    @CurrentUser() user: any,
+  ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffSvcDelete(params.staffId, params.serviceId),
       30,
@@ -204,6 +221,7 @@ export class StaffController {
       params.businessId,
       params.staffId,
       params.serviceId,
+      user.sub,
     );
   }
 
@@ -220,6 +238,7 @@ export class StaffController {
   async bulkUpsertAvailability(
     @Param() params: StaffParamDto,
     @Body() dto: BulkUpsertAvailabilityDto,
+    @CurrentUser() user: any,
   ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffAvailUpsert(params.staffId),
@@ -232,13 +251,17 @@ export class StaffController {
       params.businessId,
       params.staffId,
       dto,
+      user.sub,
     );
   }
 
   @Roles('OWNER', 'MANAGER')
   @Delete(':staffId/availability/:dayOfWeek')
   @ResMessage('Availability removed')
-  async deleteAvailability(@Param() params: StaffAvailabilityDto) {
+  async deleteAvailability(
+    @Param() params: StaffAvailabilityDto,
+    @CurrentUser() user: any,
+  ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffAvailDel(params.staffId, parseInt(params.dayOfWeek, 10)),
       60,
@@ -250,6 +273,7 @@ export class StaffController {
       params.businessId,
       params.staffId,
       parseInt(params.dayOfWeek, 10),
+      user.sub,
     );
   }
 
@@ -266,6 +290,7 @@ export class StaffController {
   async createTimeOff(
     @Param() params: StaffParamDto,
     @Body() dto: CreateTimeOffDto,
+    @CurrentUser() user: any,
   ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffToCreate(params.staffId),
@@ -274,13 +299,21 @@ export class StaffController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.service.createTimeOff(params.businessId, params.staffId, dto);
+    return this.service.createTimeOff(
+      params.businessId,
+      params.staffId,
+      dto,
+      user.sub,
+    );
   }
 
   @Roles('OWNER', 'MANAGER', 'STAFF')
   @Delete(':staffId/time-off/:timeOffId')
   @ResMessage('Time off deleted')
-  async deleteTimeOff(@Param() params: StaffTimeOffDto) {
+  async deleteTimeOff(
+    @Param() params: StaffTimeOffDto,
+    @CurrentUser() user: any,
+  ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffToDelete(params.staffId, params.timeOffId),
       60,
@@ -292,6 +325,7 @@ export class StaffController {
       params.businessId,
       params.staffId,
       params.timeOffId,
+      user.sub,
     );
   }
 
@@ -299,7 +333,11 @@ export class StaffController {
   @Roles('OWNER', 'MANAGER')
   @Post(':staffId/walk-in')
   @ResMessage('Walk-in booked')
-  async walkIn(@Param() params: StaffParamDto, @Body() dto: WalkInBookingDto) {
+  async walkIn(
+    @Param() params: StaffParamDto,
+    @Body() dto: WalkInBookingDto,
+    @CurrentUser() user: any,
+  ) {
     const ok = await this.rl.hit(
       RedisKeys.rlStaffWalkIn(params.staffId),
       30,
@@ -307,6 +345,11 @@ export class StaffController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.service.createWalkIn(params.businessId, params.staffId, dto);
+    return this.service.createWalkIn(
+      params.businessId,
+      params.staffId,
+      dto,
+      user.sub,
+    );
   }
 }

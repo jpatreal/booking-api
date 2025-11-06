@@ -79,6 +79,7 @@ export class BusinessesController {
     @Param() param: BusinessIdDto,
     @Body() body: BusinessHoursPayloadDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
@@ -94,7 +95,7 @@ export class BusinessesController {
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
 
-    return this.svc.replaceHours(param.businessId, body.items ?? []);
+    return this.svc.replaceHours(param.businessId, body.items ?? [], user.sub);
   }
 
   @Get()
@@ -161,6 +162,7 @@ export class BusinessesController {
     @Param() param: BusinessIdDto,
     @Body() dto: UpdateBusinessDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
@@ -175,14 +177,23 @@ export class BusinessesController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.update(param.businessId, dto, dto.hours?.items ?? []);
+    return this.svc.update(
+      param.businessId,
+      dto,
+      dto.hours?.items ?? [],
+      user.sub,
+    );
   }
 
   @UseGuards(BusinessAccessGuard, RolesGuard)
   @Roles('OWNER')
   @Delete(':businessId')
   @ResMessage('Business deleted successfully')
-  async softDelete(@Param() param: BusinessIdDto, @Req() req: Request) {
+  async softDelete(
+    @Param() param: BusinessIdDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlBizDelete(param.businessId),
@@ -196,14 +207,18 @@ export class BusinessesController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.softDelete(param.businessId);
+    return this.svc.softDelete(param.businessId, user.sub);
   }
 
   @UseGuards(BusinessAccessGuard, RolesGuard)
   @Roles('OWNER')
   @Post(':businessId/restore')
   @ResMessage('Business restored successfully')
-  async restore(@Param() param: BusinessIdDto, @Req() req: Request) {
+  async restore(
+    @Param() param: BusinessIdDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlBizRestore(param.businessId),
@@ -217,14 +232,18 @@ export class BusinessesController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.restore(param.businessId);
+    return this.svc.restore(param.businessId, user.sub);
   }
 
   @UseGuards(BusinessAccessGuard, RolesGuard)
   @Roles('OWNER')
   @Delete(':businessId/hard')
   @ResMessage('Business permanently deleted successfully')
-  async hardDelete(@Param() param: BusinessIdDto, @Req() req: Request) {
+  async hardDelete(
+    @Param() param: BusinessIdDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlBizDelete(param.businessId),
@@ -238,6 +257,6 @@ export class BusinessesController {
     );
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.hardDelete(param.businessId);
+    return this.svc.hardDelete(param.businessId, user.sub);
   }
 }

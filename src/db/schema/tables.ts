@@ -173,6 +173,10 @@ export const services = pgTable(
     priceCents: integer('priceCents').notNull().default(0),
     durationMin: integer('durationMin').notNull(),
     isActive: boolean('isActive').notNull().default(true),
+    capacity: smallint('capacity').notNull().default(1),
+    minLeadMinutes: integer('minLeadMinutes').notNull().default(0),
+    maxAdvanceDays: integer('maxAdvanceDays').notNull().default(90),
+    isPublic: boolean('isPublic').notNull().default(true),
   },
   (t) => [
     uniqueIndex('service_business_slug_uq').on(t.businessId, t.slug),
@@ -216,6 +220,7 @@ export const staffServices = pgTable(
       .notNull()
       .references(() => services.id, { onDelete: 'cascade' }),
     isActive: boolean('isActive').notNull().default(true),
+    isBookable: boolean('isBookable').notNull().default(true),
     priceCentsOverride: integer('priceCentsOverride'),
     durationMinOverride: integer('durationMinOverride'),
     bufferBeforeMin: integer('bufferBeforeMin').notNull().default(0),
@@ -241,7 +246,11 @@ export const staffAvailability = pgTable(
   },
   (t) => [
     index('staff_availability_staff_idx').on(t.staffId),
-    uniqueIndex('staff_availability_day_uq').on(t.staffId, t.dayOfWeek),
+    uniqueIndex('staff_availability_block_uq').on(
+      t.staffId,
+      t.dayOfWeek,
+      t.startTimeLocal,
+    ),
     check(
       'staff_availability_day_ck',
       sql`${t.dayOfWeek} >= 0 AND ${t.dayOfWeek} <= 6`,
@@ -321,11 +330,15 @@ export const customers = pgTable(
     name: text('name').notNull(),
     email: text('email'),
     phone: text('phone'),
+    phoneE164: text('phoneE164'),
+    marketingOptInAt: timestamp('marketingOptInAt', { withTimezone: true }),
     notes: text('notes'),
+    tags: text('tags'),
   },
   (t) => [
     index('cust_biz_idx').on(t.businessId),
     uniqueIndex('cust_biz_email_uq').on(t.businessId, t.email),
+    index('cust_biz_phone_idx').on(t.businessId, t.phoneE164),
   ],
 );
 
@@ -351,6 +364,17 @@ export const bookings = pgTable(
     startUtc: timestamp('startUtc', { withTimezone: true }).notNull(),
     endUtc: timestamp('endUtc', { withTimezone: true }).notNull(),
     notes: text('notes'),
+    bookedPriceCents: integer('bookedPriceCents').notNull().default(0),
+    bookedDurationMin: integer('bookedDurationMin').notNull().default(0),
+    serviceSnapshotJson: jsonb('serviceSnapshotJson'),
+    confirmedAt: timestamp('confirmedAt', { withTimezone: true }),
+    cancelledAt: timestamp('cancelledAt', { withTimezone: true }),
+    cancelReason: text('cancelReason'),
+    noShowAt: timestamp('noShowAt', { withTimezone: true }),
+    source: text('source').default('internal'),
+    channelRef: text('channelRef'),
+    paymentStatus: text('paymentStatus').default('unpaid'),
+    depositCents: integer('depositCents').default(0),
   },
   (t) => [
     index('booking_business_idx').on(t.businessId),
@@ -374,4 +398,41 @@ export const bookingStatusHistory = pgTable(
     note: text('note'),
   },
   (t) => [index('book_hist_booking_idx').on(t.bookingId)],
+);
+
+export const outbox = pgTable(
+  'Outbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    topic: text('topic').notNull(),
+    payload: jsonb('payload').notNull(),
+    occurredAt: timestamp('occurredAt', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp('processedAt', { withTimezone: true }),
+    attempts: smallint('attempts').notNull().default(0),
+  },
+  (t) => [index('outbox_topic_idx').on(t.topic)],
+);
+
+export const auditLog = pgTable(
+  'AuditLog',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    businessId: uuid('businessId').references(() => businesses.id, {
+      onDelete: 'cascade',
+    }),
+    actorUserId: uuid('actorUserId').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    action: text('action').notNull(),
+    entity: text('entity').notNull(),
+    entityId: uuid('entityId').notNull(),
+    meta: jsonb('meta'),
+    createdAt: timestamp('createdAt', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index('audit_biz_idx').on(t.businessId),
+    index('audit_entity_idx').on(t.entity, t.entityId),
+  ],
 );

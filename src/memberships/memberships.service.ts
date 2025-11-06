@@ -10,6 +10,7 @@ import { isUniqueViolation } from '@app/common/errors/pg-like.error';
 import { UserRepository } from '@app/users/user.repository';
 import { QueryParamsDto } from './dto/memberships.dto';
 import { MembershipsCache } from './memberships.cache';
+import { AuditLogService } from '@app/audit-log/audit-log.service';
 
 type AddMemberInput =
   | { businessId: string; role: Role; userId: string; email?: never }
@@ -22,6 +23,7 @@ export class MembershipsService {
     private readonly bizRepo: BusinessesRepository,
     private readonly userRepo: UserRepository,
     private readonly memCache: MembershipsCache,
+    private readonly audit: AuditLogService,
   ) {}
 
   async ensureOwnerMembership(userId: string, businessId: string) {
@@ -37,12 +39,13 @@ export class MembershipsService {
     );
   }
 
-  async addMember(input: AddMemberInput) {
+  async addMember(input: AddMemberInput, actorUserId?: string) {
     const biz = await this.bizRepo.findById(input.businessId);
     if (!biz) throw new NotFoundAppError('Business not found');
 
     let userId: string | undefined =
       'userId' in input ? input.userId : undefined;
+
     if (!userId && 'email' in input) {
       const user = await this.userRepo.findByEmail(
         input.email.trim().toLowerCase(),
@@ -68,6 +71,18 @@ export class MembershipsService {
         role: input.role,
       });
 
+      await this.audit.log({
+        businessId: input.businessId,
+        actorUserId,
+        action: 'membership.add',
+        entity: 'Membership',
+        entityId: created.id,
+        meta: this.audit.buildMeta({
+          userId,
+          role: input.role,
+        }),
+      });
+
       await this.memCache.invalidateById(created.id);
       await this.memCache.bumpListVer(input.businessId);
       await this.memCache.touchOwners(input.businessId);
@@ -80,7 +95,7 @@ export class MembershipsService {
     }
   }
 
-  async changeRole(membershipId: string, role: Role) {
+  async changeRole(membershipId: string, role: Role, actorUserId?: string) {
     const row = await this.repo.findById(membershipId);
     if (!row) throw new NotFoundAppError('Membership not found');
 
@@ -106,6 +121,19 @@ export class MembershipsService {
 
     const updated = await this.repo.updateRole(membershipId, role);
 
+    await this.audit.log({
+      businessId: row.businessId,
+      actorUserId,
+      action: 'membership.changeRole',
+      entity: 'Membership',
+      entityId: membershipId,
+      meta: this.audit.buildMeta({
+        userId: row.userId,
+        beforeRole: row.role,
+        afterRole: role,
+      }),
+    });
+
     await this.memCache.invalidateById(membershipId);
     await this.memCache.bumpListVer(row.businessId);
     await this.memCache.touchOwners(row.businessId);
@@ -113,7 +141,7 @@ export class MembershipsService {
     return updated;
   }
 
-  async disable(membershipId: string) {
+  async disable(membershipId: string, actorUserId?: string) {
     const row = await this.repo.findById(membershipId);
     if (!row) throw new NotFoundAppError('Membership not found');
 
@@ -128,6 +156,15 @@ export class MembershipsService {
 
     const res = await this.repo.disable(membershipId);
 
+    await this.audit.log({
+      businessId: row.businessId,
+      actorUserId,
+      action: 'membership.disable',
+      entity: 'Membership',
+      entityId: membershipId,
+      meta: this.audit.buildMeta({ userId: row.userId, role: row.role }),
+    });
+
     await this.memCache.invalidateById(membershipId);
     await this.memCache.bumpListVer(row.businessId);
     await this.memCache.touchOwners(row.businessId);
@@ -135,12 +172,21 @@ export class MembershipsService {
     return res;
   }
 
-  async enable(membershipId: string) {
+  async enable(membershipId: string, actorUserId?: string) {
     const row = await this.repo.findById(membershipId);
     if (!row) throw new NotFoundAppError('Membership not found');
 
     const res = await this.repo.enable(membershipId);
 
+    await this.audit.log({
+      businessId: row.businessId,
+      actorUserId,
+      action: 'membership.enable',
+      entity: 'Membership',
+      entityId: membershipId,
+      meta: this.audit.buildMeta({ userId: row.userId, role: row.role }),
+    });
+
     await this.memCache.invalidateById(membershipId);
     await this.memCache.bumpListVer(row.businessId);
     await this.memCache.touchOwners(row.businessId);
@@ -148,7 +194,7 @@ export class MembershipsService {
     return res;
   }
 
-  async remove(membershipId: string) {
+  async remove(membershipId: string, actorUserId?: string) {
     const row = await this.repo.findById(membershipId);
     if (!row) throw new NotFoundAppError('Membership not found');
 
@@ -163,6 +209,15 @@ export class MembershipsService {
 
     const res = await this.repo.softDelete(membershipId);
 
+    await this.audit.log({
+      businessId: row.businessId,
+      actorUserId,
+      action: 'membership.softDelete',
+      entity: 'Membership',
+      entityId: membershipId,
+      meta: this.audit.buildMeta({ userId: row.userId, role: row.role }),
+    });
+
     await this.memCache.invalidateById(membershipId);
     await this.memCache.bumpListVer(row.businessId);
     await this.memCache.touchOwners(row.businessId);
@@ -170,11 +225,14 @@ export class MembershipsService {
     return res;
   }
 
-  async transferOwnership(input: {
-    businessId: string;
-    toMembershipId: string;
-    fromMembershipId?: string | null;
-  }) {
+  async transferOwnership(
+    input: {
+      businessId: string;
+      toMembershipId: string;
+      fromMembershipId?: string | null;
+    },
+    actorUserId?: string,
+  ) {
     if (input.fromMembershipId) {
       const [from, to] = await Promise.all([
         this.repo.findById(input.fromMembershipId),
@@ -193,6 +251,18 @@ export class MembershipsService {
     }
 
     const res = await this.repo.transferOwnership(input);
+
+    await this.audit.log({
+      businessId: input.businessId,
+      actorUserId,
+      action: 'membership.transferOwnership',
+      entity: 'Membership',
+      entityId: input.toMembershipId,
+      meta: this.audit.buildMeta({
+        toMembershipId: input.toMembershipId,
+        fromMembershipId: input.fromMembershipId ?? null,
+      }),
+    });
 
     if (input.fromMembershipId)
       await this.memCache.invalidateById(input.fromMembershipId);

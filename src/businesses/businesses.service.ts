@@ -11,6 +11,8 @@ import {
   UpdateBusinessInput,
 } from './businesses.repository';
 import { BusinessesCache } from './business.cache';
+import { AuditLogService } from '@app/audit-log/audit-log.service';
+import { UpdateBusinessDto } from './dto/update-business.dto';
 
 const OWNER_MANAGER_LIMIT = 2;
 
@@ -19,7 +21,15 @@ export class BusinessesService {
   constructor(
     private readonly repo: BusinessesRepository,
     private readonly bizCache: BusinessesCache,
+    private readonly audit: AuditLogService,
   ) {}
+
+  private summarizeHours(hours: HourItem[] = []) {
+    return {
+      count: hours.length,
+      sample: hours.slice(0, 3),
+    };
+  }
 
   async createOwnedForUser(
     userId: string,
@@ -38,6 +48,23 @@ export class BusinessesService {
         input,
         hours,
       );
+
+      await this.audit.log({
+        businessId: created.id,
+        actorUserId: userId,
+        action: 'business.create',
+        entity: 'Business',
+        entityId: created.id,
+        meta: this.audit.buildMeta({
+          input: {
+            name: input.name,
+            slug: input.slug,
+            timezone: input.timezone,
+          },
+          hours: this.summarizeHours(hours),
+        }),
+      });
+
       await this.bizCache.bumpListVersion(userId);
       await this.bizCache.invalidateEntity(created.id, created.slug);
       return created;
@@ -81,7 +108,12 @@ export class BusinessesService {
     return this.bizCache.getHours(businessId);
   }
 
-  async update(id: string, patch: UpdateBusinessInput, hours?: HourItem[]) {
+  async update(
+    id: string,
+    patch: UpdateBusinessDto,
+    hours?: HourItem[],
+    actorUserId?: string,
+  ) {
     try {
       const before = await this.repo.findById(id);
       if (!before) throw new NotFoundException('Business not found');
@@ -91,6 +123,36 @@ export class BusinessesService {
         await this.repo.replaceHours(id, hours);
       }
       const withHours = await this.repo.findWithHours(id);
+
+      await this.audit.log({
+        businessId: id,
+        actorUserId,
+        action: 'business.update',
+        entity: 'Business',
+        entityId: id,
+        meta: this.audit.buildMeta({
+          patch: {
+            ...(patch.name ? { name: patch.name } : {}),
+            ...(patch.slug ? { slug: patch.slug } : {}),
+            ...(patch.timezone ? { timezone: patch.timezone } : {}),
+          },
+          hours: hours ? this.summarizeHours(hours) : undefined,
+          before: {
+            name: before.name,
+            slug: before.slug,
+            timezone: before.timezone,
+            plan: before.plan,
+            status: before.status,
+          },
+          after: {
+            name: withHours!.name,
+            slug: withHours!.slug,
+            timezone: withHours!.timezone,
+            plan: withHours!.plan,
+            status: withHours!.status,
+          },
+        }),
+      });
 
       await this.bizCache.invalidateEntity(id, before.slug);
       return withHours!;
@@ -103,26 +165,75 @@ export class BusinessesService {
     }
   }
 
-  async replaceHours(businessId: string, hours: HourItem[]) {
+  async replaceHours(
+    businessId: string,
+    hours: HourItem[],
+    actorUserId?: string,
+  ) {
+    const before = await this.repo.findWithHours(businessId);
     await this.repo.replaceHours(businessId, hours);
+    const after = await this.repo.findWithHours(businessId);
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'business.replaceHours',
+      entity: 'Business',
+      entityId: businessId,
+      meta: this.audit.buildMeta({
+        before: this.summarizeHours(before?.hours ?? []),
+        after: this.summarizeHours(hours),
+      }),
+    });
+
     await this.bizCache.invalidateEntity(businessId);
-    return this.repo.findWithHours(businessId);
+    return after;
   }
 
-  async softDelete(id: string) {
+  async softDelete(id: string, actorUserId?: string) {
     const row = await this.repo.softDelete(id);
+
+    await this.audit.log({
+      businessId: id,
+      actorUserId,
+      action: 'business.softDelete',
+      entity: 'Business',
+      entityId: id,
+      meta: this.audit.buildMeta({ slug: row.slug }),
+    });
+
     await this.bizCache.invalidateEntity(id, row.slug);
     return row;
   }
 
-  async restore(id: string) {
+  async restore(id: string, actorUserId?: string) {
     const row = await this.repo.restore(id);
+
+    await this.audit.log({
+      businessId: id,
+      actorUserId,
+      action: 'business.restore',
+      entity: 'Business',
+      entityId: id,
+      meta: this.audit.buildMeta({ slug: row.slug }),
+    });
+
     await this.bizCache.invalidateEntity(id, row.slug);
     return row;
   }
 
-  async hardDelete(id: string) {
+  async hardDelete(id: string, actorUserId?: string) {
     const row = await this.repo.hardDelete(id);
+
+    await this.audit.log({
+      businessId: id,
+      actorUserId,
+      action: 'business.hardDelete',
+      entity: 'Business',
+      entityId: id,
+      meta: this.audit.buildMeta({ slug: row.slug }),
+    });
+
     await this.bizCache.invalidateEntity(id, row.slug);
     return row;
   }

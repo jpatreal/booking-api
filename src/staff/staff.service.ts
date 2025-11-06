@@ -25,6 +25,7 @@ import {
   pgConstraint,
 } from '@app/common/errors/pg-like.error';
 import { StaffCache } from './staff.cache';
+import { AuditLogService } from '@app/audit-log/audit-log.service';
 
 @Injectable()
 export class StaffService {
@@ -33,6 +34,7 @@ export class StaffService {
     @Inject(DRIZZLE) private readonly db: DB,
     private readonly limits: LimitsService,
     private readonly staffCache: StaffCache,
+    private readonly audit: AuditLogService,
   ) {}
 
   async list(businessId: string, q: ListStaffQueryDto) {
@@ -55,7 +57,7 @@ export class StaffService {
     return row;
   }
 
-  async create(businessId: string, dto: CreateStaffDto) {
+  async create(businessId: string, dto: CreateStaffDto, actorUserId?: string) {
     await this.limits.assertCanCreateStaff(businessId);
     try {
       const created = await this.repo.insert({
@@ -70,6 +72,21 @@ export class StaffService {
         displayOrder: dto.displayOrder ?? 0,
         isActive: true,
       } as any);
+
+      await this.audit.log({
+        businessId,
+        actorUserId,
+        action: 'staff.create',
+        entity: 'Staff',
+        entityId: created.id,
+        meta: this.audit.buildMeta({
+          name: created.name,
+          email: created.email,
+          userId: created.userId,
+          isActive: created.isActive,
+        }),
+      });
+
       await this.staffCache.invalidateById(businessId, created.id);
       await this.staffCache.bumpListVer(businessId);
       return created;
@@ -88,7 +105,15 @@ export class StaffService {
     }
   }
 
-  async update(businessId: string, staffId: string, dto: UpdateStaffDto) {
+  async update(
+    businessId: string,
+    staffId: string,
+    dto: UpdateStaffDto,
+    actorUserId?: string,
+  ) {
+    const before = await this.repo.findById(staffId, { businessId });
+    if (!before) throw new NotFoundException('Staff not found');
+
     const updated = await this.repo.updateById(
       staffId,
       { ...dto },
@@ -96,14 +121,49 @@ export class StaffService {
     );
     if (!updated) throw new NotFoundException('Staff not found');
 
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staff.update',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({
+        before: {
+          name: before.name,
+          email: before.email,
+          phone: before.phone,
+          isActive: before.isActive,
+          color: before.color,
+          displayOrder: before.displayOrder,
+        },
+        after: {
+          name: updated.name,
+          email: updated.email,
+          phone: updated.phone,
+          isActive: updated.isActive,
+          color: updated.color,
+          displayOrder: updated.displayOrder,
+        },
+      }),
+    });
+
     await this.staffCache.invalidateById(businessId, staffId);
     await this.staffCache.bumpListVer(businessId);
     return updated;
   }
 
-  async remove(businessId: string, staffId: string) {
+  async remove(businessId: string, staffId: string, actorUserId?: string) {
     const deleted = await this.repo.softDelete(staffId, { businessId });
     if (!deleted) throw new NotFoundException('Staff not found');
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staff.softDelete',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({ ok: true }),
+    });
 
     await this.staffCache.invalidateById(businessId, staffId);
     await this.staffCache.bumpListVer(businessId);
@@ -115,12 +175,26 @@ export class StaffService {
     businessId: string,
     staffId: string,
     dto: BulkUpsertStaffServicesDto,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const results = await this.db.transaction(async (tx) => {
-      const arr = [] as any[];
-      for (const item of dto.items)
+      const arr: any[] = [];
+      for (const item of dto.items) {
         arr.push(await this.repo.upsertStaffService(staffId, item, tx));
+      }
+
+      await this.audit.logInTx(tx, {
+        businessId,
+        actorUserId,
+        action: 'staffService.bulkUpsert',
+        entity: 'Staff',
+        entityId: staffId,
+        meta: this.audit.buildMeta({
+          count: dto.items.length,
+          items: dto.items.slice(0, 10),
+        }),
+      });
       return arr;
     });
     await this.staffCache.touchServices(staffId);
@@ -138,10 +212,21 @@ export class StaffService {
     businessId: string,
     staffId: string,
     serviceId: string,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const row = await this.repo.deleteStaffService(staffId, serviceId);
     if (!row) throw new NotFoundException('Mapping not found');
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staffService.delete',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({ serviceId }),
+    });
+
     await this.staffCache.touchServices(staffId);
     return row;
   }
@@ -151,12 +236,25 @@ export class StaffService {
     businessId: string,
     staffId: string,
     dto: BulkUpsertAvailabilityDto,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const results = await this.db.transaction(async (tx) => {
-      const arr = [] as any[];
-      for (const item of dto.items)
+      const arr: any[] = [];
+      for (const item of dto.items) {
         arr.push(await this.repo.upsertAvailability(staffId, item, tx));
+      }
+      await this.audit.logInTx(tx, {
+        businessId,
+        actorUserId,
+        action: 'staffAvailability.bulkUpsert',
+        entity: 'Staff',
+        entityId: staffId,
+        meta: this.audit.buildMeta({
+          count: dto.items.length,
+          days: dto.items.map((i) => i.dayOfWeek).slice(0, 14),
+        }),
+      });
       return arr;
     });
     await this.staffCache.touchAvailability(staffId);
@@ -174,10 +272,21 @@ export class StaffService {
     businessId: string,
     staffId: string,
     dayOfWeek: number,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const row = await this.repo.deleteAvailability(staffId, dayOfWeek);
     if (!row) throw new NotFoundException('Availability not found');
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staffAvailability.delete',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({ dayOfWeek }),
+    });
+
     await this.staffCache.touchAvailability(staffId);
     return row;
   }
@@ -194,17 +303,48 @@ export class StaffService {
     businessId: string,
     staffId: string,
     dto: CreateTimeOffDto,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const row = await this.repo.createTimeOff(staffId, dto);
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staffTimeOff.create',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({
+        timeOffId: row.id,
+        startUtc: row.startUtc,
+        endUtc: row.endUtc,
+        reason: row.reason ?? undefined,
+      }),
+    });
+
     await this.staffCache.touchTimeOff(staffId);
     return row;
   }
 
-  async deleteTimeOff(businessId: string, staffId: string, timeOffId: string) {
+  async deleteTimeOff(
+    businessId: string,
+    staffId: string,
+    timeOffId: string,
+    actorUserId?: string,
+  ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const row = await this.repo.deleteTimeOff(timeOffId);
     if (!row) throw new NotFoundException('Time off not found');
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staffTimeOff.delete',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({ timeOffId }),
+    });
+
     await this.staffCache.touchTimeOff(staffId);
     return row;
   }
@@ -214,6 +354,7 @@ export class StaffService {
     businessId: string,
     staffId: string,
     dto: WalkInBookingDto,
+    actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
     const startUtc = new Date(dto.startUtc);
@@ -227,6 +368,8 @@ export class StaffService {
         startUtc,
         endUtc,
       );
+      let cancelledCount = 0;
+
       if (conflicts.length && !dto.force) {
         throw new BadRequestException({
           message: 'Conflicting bookings exist',
@@ -234,7 +377,7 @@ export class StaffService {
         });
       }
       if (conflicts.length && dto.force) {
-        await tx
+        const cancelled = await tx
           .update(bookingsTable)
           .set({
             status: 'CANCELLED' as any,
@@ -246,8 +389,11 @@ export class StaffService {
               sql`tstzrange(${bookingsTable.startUtc}, ${bookingsTable.endUtc}, '[)') && tstzrange(${startUtc}, ${endUtc}, '[)')`,
               sql`${bookingsTable.status} IN ('PENDING','CONFIRMED')`,
             ),
-          );
+          )
+          .returning({ id: bookingsTable.id });
+        cancelledCount = cancelled.length;
       }
+
       const [row] = await tx
         .insert(bookingsTable)
         .values({
@@ -262,6 +408,25 @@ export class StaffService {
           notes: dto.notes ?? null,
         })
         .returning();
+
+      await this.audit.logInTx(tx, {
+        businessId,
+        actorUserId,
+        action: 'booking.create.walkIn',
+        entity: 'Booking',
+        entityId: row.id,
+        meta: this.audit.buildMeta({
+          staffId,
+          serviceId: dto.serviceId,
+          customerName: dto.customerName,
+          startUtc,
+          endUtc,
+          forced: Boolean(dto.force),
+          conflictsFound: conflicts.length,
+          cancelledCount,
+        }),
+      });
+
       return row;
     });
 

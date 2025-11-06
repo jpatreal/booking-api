@@ -30,6 +30,7 @@ import { BusinessPlanGuard } from '@app/auth/guards/business-plan.guard';
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 import { RedisKeys } from '@app/cache/redis-keys';
 import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+import { CurrentUser } from '@app/common/decorators/current-user.decorator';
 
 @UseInterceptors(new TimeoutInterceptor())
 @UseGuards(JwtAccessGuard, BusinessAccessGuard, RolesGuard, BusinessPlanGuard)
@@ -56,6 +57,7 @@ export class ServicesController {
     @Param() param: BusinessIdDto,
     @Body() createServiceDto: CreateServiceDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const okBiz = await this.rl.hit(
@@ -74,6 +76,7 @@ export class ServicesController {
     return await this.servicesService.create(
       param.businessId,
       createServiceDto,
+      user.sub,
     );
   }
 
@@ -122,6 +125,7 @@ export class ServicesController {
     @Param() param: BusinessIdDto,
     @Body() dto: UpdateServiceDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
@@ -137,14 +141,23 @@ export class ServicesController {
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
 
-    return await this.servicesService.update(param.businessId, param.id, dto);
+    return await this.servicesService.update(
+      param.businessId,
+      param.id,
+      dto,
+      user.sub,
+    );
   }
 
   @Roles('OWNER')
   @HttpCode(200)
   @Delete(':id')
   @ResMessage('Service deleted')
-  async remove(@Param() param: BusinessIdDto, @Req() req: Request) {
+  async remove(
+    @Param() param: BusinessIdDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlSvcDelete(param.businessId, param.id),
@@ -159,13 +172,17 @@ export class ServicesController {
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
 
-    return this.servicesService.remove(param.businessId, param.id);
+    return this.servicesService.remove(param.businessId, param.id, user.sub);
   }
 
   @Roles('OWNER')
   @Post(':id/restore')
   @ResMessage('Service restored')
-  async restore(@Param() param: BusinessIdDto, @Req() req: Request) {
+  async restore(
+    @Param() param: BusinessIdDto,
+    @Req() req: Request,
+    @CurrentUser() user: any,
+  ) {
     const ip = this.getClientIp(req);
     const ok1 = await this.rl.hit(
       RedisKeys.rlSvcRestore(param.businessId, param.id),
@@ -180,6 +197,6 @@ export class ServicesController {
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
 
-    return this.servicesService.restore(param.businessId, param.id);
+    return this.servicesService.restore(param.businessId, param.id, user.sub);
   }
 }

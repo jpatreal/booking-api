@@ -30,6 +30,7 @@ import {
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 import { RedisKeys } from '@app/cache/redis-keys';
 import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+import { CurrentUser } from '@app/common/decorators/current-user.decorator';
 
 @Controller('businesses/:businessId/memberships')
 @UseGuards(JwtAccessGuard, BusinessAccessGuard, RolesGuard, BusinessPlanGuard)
@@ -75,6 +76,7 @@ export class MembershipsController {
     @Param() param: BizIdDto,
     @Body() body: AddMemberDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const okBiz = await this.rl.hit(
@@ -89,17 +91,24 @@ export class MembershipsController {
     );
     if (!okBiz || !okIP)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.addMember({
-      businessId: param.businessId,
-      userId: body.userId,
-      role: body.role,
-    });
+    return this.svc.addMember(
+      {
+        businessId: param.businessId,
+        userId: body.userId,
+        role: body.role,
+      },
+      user.sub,
+    );
   }
 
   @Roles('OWNER', 'MANAGER')
   @Patch(':membershipId/role')
   @ResMessage('Membership role changed')
-  async changeRole(@Param() param: MembershipIdDto, @Body() body: RoleDto) {
+  async changeRole(
+    @Param() param: MembershipIdDto,
+    @Body() body: RoleDto,
+    @CurrentUser() user: any,
+  ) {
     const ok = await this.rl.hit(
       RedisKeys.rlMemChangeRole(param.membershipId),
       60,
@@ -107,13 +116,13 @@ export class MembershipsController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.changeRole(param.membershipId, body.role);
+    return this.svc.changeRole(param.membershipId, body.role, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
   @Patch(':membershipId/disable')
   @ResMessage('Membership disabled')
-  async disable(@Param() param: MembershipIdDto) {
+  async disable(@Param() param: MembershipIdDto, @CurrentUser() user: any) {
     const ok = await this.rl.hit(
       RedisKeys.rlMemDisable(param.membershipId),
       30,
@@ -121,13 +130,13 @@ export class MembershipsController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.disable(param.membershipId);
+    return this.svc.disable(param.membershipId, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
   @Patch(':membershipId/enable')
   @ResMessage('Membership enabled')
-  async enable(@Param() param: MembershipIdDto) {
+  async enable(@Param() param: MembershipIdDto, @CurrentUser() user: any) {
     const ok = await this.rl.hit(
       RedisKeys.rlMemEnable(param.membershipId),
       30,
@@ -135,13 +144,13 @@ export class MembershipsController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.enable(param.membershipId);
+    return this.svc.enable(param.membershipId, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
   @Delete(':membershipId')
   @ResMessage('Membership deleted')
-  async remove(@Param() param: MembershipIdDto) {
+  async remove(@Param() param: MembershipIdDto, @CurrentUser() user: any) {
     const ok = await this.rl.hit(
       RedisKeys.rlMemDelete(param.membershipId),
       30,
@@ -149,7 +158,7 @@ export class MembershipsController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.remove(param.membershipId);
+    return this.svc.remove(param.membershipId, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
@@ -158,6 +167,7 @@ export class MembershipsController {
   async transferOwner(
     @Param() param: BizIdDto,
     @Body() body: TransferOwnerDto,
+    @CurrentUser() user: any,
   ) {
     const ok = await this.rl.hit(
       RedisKeys.rlMemTransfer(param.businessId),
@@ -166,10 +176,13 @@ export class MembershipsController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.svc.transferOwnership({
-      businessId: param.businessId,
-      toMembershipId: body.toMembershipId,
-      fromMembershipId: body.fromMembershipId ?? null,
-    });
+    return this.svc.transferOwnership(
+      {
+        businessId: param.businessId,
+        toMembershipId: body.toMembershipId,
+        fromMembershipId: body.fromMembershipId ?? null,
+      },
+      user.sub,
+    );
   }
 }

@@ -57,6 +57,7 @@ export class MembershipInvitesController {
     @Param() param: BizIdDto,
     @Body() body: CreateInviteDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const okBiz = await this.rl.hit(
@@ -71,13 +72,16 @@ export class MembershipInvitesController {
     );
     if (!okBiz || !okIP)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.invites.createInvite({
-      businessId: param.businessId,
-      email: body.email,
-      role: body.role,
-      ttlHours: body.ttlHours,
-      returnTokenForDev: body.returnTokenForDev,
-    });
+    return this.invites.createInvite(
+      {
+        businessId: param.businessId,
+        email: body.email,
+        role: body.role,
+        ttlHours: body.ttlHours,
+        returnTokenForDev: body.returnTokenForDev,
+      },
+      user.sub,
+    );
   }
 
   @Post('accept')
@@ -96,6 +100,7 @@ export class MembershipInvitesController {
     @Param() param: ResendInviteIdDto,
     @Body() body: ResendInviteDto,
     @Req() req: Request,
+    @CurrentUser() user: any,
   ) {
     const ip = this.getClientIp(req);
     const okBiz = await this.rl.hit(
@@ -110,11 +115,14 @@ export class MembershipInvitesController {
     );
     if (!okBiz || !okIP)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.invites.resendInvite({
-      inviteId: param.inviteId,
-      ttlHours: body.ttlHours,
-      returnTokenForDev: body.returnTokenForDev,
-    });
+    return this.invites.resendInvite(
+      {
+        inviteId: param.inviteId,
+        ttlHours: body.ttlHours,
+        returnTokenForDev: body.returnTokenForDev,
+      },
+      user.sub,
+    );
   }
 
   @Roles('OWNER', 'MANAGER', 'STAFF')
@@ -135,11 +143,11 @@ export class MembershipInvitesController {
   @Roles('OWNER')
   @Delete(':inviteId')
   @ResMessage('Invite cancelled')
-  async cancel(@Param() param: ResendInviteIdDto) {
+  async cancel(@Param() param: ResendInviteIdDto, @CurrentUser() user: any) {
     const ok = await this.rl.hit(RedisKeys.rlInvCancel(param.inviteId), 30, 60);
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
-    return this.invites.cancelInvite(param.inviteId);
+    return this.invites.cancelInvite(param.inviteId, user.sub);
   }
 
   @Roles('OWNER', 'MANAGER')
