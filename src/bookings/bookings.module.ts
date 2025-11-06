@@ -1,9 +1,18 @@
 import { Module } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { BookingsController } from './bookings.controller';
+import { BookingsRepository } from './bookings.repository';
+import { BookingsCache } from './bookings.cache';
+import { BookingsClientController } from './bookings-client.controller';
+import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 
 @Module({
-  providers: [BookingsService],
-  controllers: [BookingsController]
+  providers: [
+    BookingsService,
+    BookingsRepository,
+    BookingsCache,
+    RateLimitService,
+  ],
+  controllers: [BookingsController, BookingsClientController],
 })
 export class BookingsModule {}

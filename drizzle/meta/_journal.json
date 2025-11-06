@@ -57,6 +57,13 @@
       "when": 1762349545914,
       "tag": "0007_massive_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1762428276172,
+      "tag": "0008_chubby_goliath",
+      "breakpoints": true
     }
   ]
 }

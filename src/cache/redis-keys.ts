@@ -5,6 +5,7 @@ import { BusinessKeys } from './keys/businesses.keys';
 import { StaffKeys } from './keys/staff.keys';
 import { MembershipKeys } from './keys/memberships.keys';
 import { InviteKeys } from './keys/membership-invites.keys';
+import { BookingKeys } from './keys/booking-keys';
 
 export const RedisKeys = {
   ...AuthKeys,
@@ -14,6 +15,7 @@ export const RedisKeys = {
   ...StaffKeys,
   ...MembershipKeys,
   ...InviteKeys,
+  ...BookingKeys,
 } as const;
 
 export {
@@ -24,6 +26,7 @@ export {
   StaffKeys,
   MembershipKeys,
   InviteKeys,
+  BookingKeys,
 };
 
 export type RedisKeyFns = typeof RedisKeys;

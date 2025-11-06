@@ -246,11 +246,7 @@ export const staffAvailability = pgTable(
   },
   (t) => [
     index('staff_availability_staff_idx').on(t.staffId),
-    uniqueIndex('staff_availability_block_uq').on(
-      t.staffId,
-      t.dayOfWeek,
-      t.startTimeLocal,
-    ),
+    uniqueIndex('staff_availability_day_uq').on(t.staffId, t.dayOfWeek),
     check(
       'staff_availability_day_ck',
       sql`${t.dayOfWeek} >= 0 AND ${t.dayOfWeek} <= 6`,
