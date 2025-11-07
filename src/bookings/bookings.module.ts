@@ -5,6 +5,7 @@ import { BookingsRepository } from './bookings.repository';
 import { BookingsCache } from './bookings.cache';
 import { BookingsClientController } from './bookings-client.controller';
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
+import { IdempotencyService } from '@app/common/idempotency/idempotency.service';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
     BookingsRepository,
     BookingsCache,
     RateLimitService,
+    IdempotencyService,
   ],
   controllers: [BookingsController, BookingsClientController],
 })

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -20,6 +21,7 @@ import { BookingKeys } from '@app/cache/redis-keys';
 import { PublicCreateBookingDto } from './dto/public/public-create-booking.dto';
 import { AvailabilityQueryDto } from './dto/public/availability-query.dto';
 import { IsUUID } from 'class-validator';
+import { IdempotencyService } from '@app/common/idempotency/idempotency.service';
 
 class BizParamDto {
   @IsUUID()
@@ -32,6 +34,7 @@ export class BookingsClientController {
   constructor(
     private readonly svc: BookingsService,
     private readonly rl: RateLimitService,
+    private readonly idem: IdempotencyService,
   ) {}
 
   private getIp(req: Request) {
@@ -77,6 +80,27 @@ export class BookingsClientController {
     );
     if (!ok)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
+    const idemKey = String(req.headers['x-idempotency-key'] || '').trim();
+    if (!idemKey) throw new BadRequestException('Missing x-idempotency-key');
+
+    if (idemKey) {
+      const cacheKey = BookingKeys.idemPublic(businessId, idemKey);
+      const { done, inProgress } = await this.idem.begin(cacheKey);
+      if (inProgress) {
+        throw new UnauthorizedAppError('Duplicate in progress. Retry shortly.');
+      }
+      if (done) return done;
+
+      try {
+        const result = await this.svc.createPublic(businessId, dto);
+        await this.idem.complete(cacheKey, result);
+        return result;
+      } catch (e) {
+        await this.idem.clear(cacheKey);
+        throw e;
+      }
+    }
 
     return this.svc.createPublic(businessId, dto);
   }

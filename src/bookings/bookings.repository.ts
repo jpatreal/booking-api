@@ -29,6 +29,17 @@ type Status = typeof bookings.$inferSelect.status;
 export class BookingsRepository {
   constructor(@Inject(DRIZZLE) private readonly db: DB) {}
 
+  async outboxInTx(
+    tx: any,
+    topic: 'booking.created' | 'booking.status.changed' | 'booking.rescheduled',
+    payload: Record<string, any>,
+  ) {
+    await tx.insert(outbox).values({
+      topic,
+      payload,
+    });
+  }
+
   async getBusiness(businessId: string) {
     const row = await this.db.query.businesses.findFirst({
       where: (t, { eq }) => eq(t.id, businessId),
@@ -155,6 +166,11 @@ export class BookingsRepository {
 
       return created;
     });
+  }
+
+  async insertBookingInTx(tx: any, values: typeof bookings.$inferInsert) {
+    const [row] = await tx.insert(bookings).values(values).returning();
+    return row;
   }
 
   async getById(businessId: string, id: string) {

@@ -19,6 +19,7 @@ import { BookingsModule } from './bookings/bookings.module';
 import { RedisModule } from './redis/redis.module';
 import { AppCacheModule } from './cache/cache.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { OutboxModule } from './outbox/outbox.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     BookingsModule,
     RedisModule,
     AuditLogModule,
+    OutboxModule,
   ],
   controllers: [AppController],
   providers: [AppService],

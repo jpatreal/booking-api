@@ -20,4 +20,9 @@ export const BookingKeys = {
     `rl:pub:book:avail:${businessId}:${ip}`,
   rlPubCreateIP: (businessId: string, ip: string) =>
     `rl:pub:book:create:${businessId}:${ip}`,
+
+  idemPublic: (businessId: string, key: string) =>
+    `idem:pub:book:${businessId}:${key}`,
+  idemAdmin: (businessId: string, key: string) =>
+    `idem:adm:book:${businessId}:${key}`,
 } as const;

@@ -34,6 +34,7 @@ import { ConfirmBookingDto } from './dto/confirm-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { NoShowBookingDto } from './dto/no-show-booking.dto';
 import { CompleteBookingDto } from './dto/complete-booking.dto';
+import { IdempotencyService } from '@app/common/idempotency/idempotency.service';
 
 @UseInterceptors(new TimeoutInterceptor())
 @UseGuards(JwtAccessGuard, BusinessAccessGuard, RolesGuard)
@@ -42,6 +43,7 @@ export class BookingsController {
   constructor(
     private readonly svc: BookingsService,
     private readonly rl: RateLimitService,
+    private readonly idem: IdempotencyService,
   ) {}
 
   private getIp(req: Request) {
@@ -102,6 +104,24 @@ export class BookingsController {
     const okIP = await this.rl.hit(BookingKeys.rlCreateIP(ip), 10, 60);
     if (!okBiz || !okIP)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
+    const idemKey = String(req.headers['x-idempotency-key'] || '').trim();
+    if (idemKey) {
+      const cacheKey = BookingKeys.idemAdmin(businessId, idemKey);
+      const { done, inProgress } = await this.idem.begin(cacheKey);
+      if (inProgress)
+        throw new UnauthorizedAppError('Duplicate in progress. Retry shortly.');
+      if (done) return done;
+
+      try {
+        const result = await this.svc.create(businessId, dto as any, user?.sub);
+        await this.idem.complete(cacheKey, result);
+        return result;
+      } catch (e) {
+        await this.idem.clear(cacheKey);
+        throw e;
+      }
+    }
     return this.svc.create(businessId, dto as any, user?.sub);
   }
 
@@ -123,6 +143,24 @@ export class BookingsController {
     const ok2 = await this.rl.hit(BookingKeys.rlReschedIP(ip), 20, 60);
     if (!ok1 || !ok2)
       throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
+    const idemKey = String(req.headers['x-idempotency-key'] || '').trim();
+    if (idemKey) {
+      const cacheKey = BookingKeys.idemAdmin(businessId, idemKey + ':' + id);
+      const { done, inProgress } = await this.idem.begin(cacheKey);
+      if (inProgress)
+        throw new UnauthorizedAppError('Duplicate in progress. Retry shortly.');
+      if (done) return done;
+
+      try {
+        const result = await this.svc.create(businessId, dto as any, user?.sub);
+        await this.idem.complete(cacheKey, result);
+        return result;
+      } catch (e) {
+        await this.idem.clear(cacheKey);
+        throw e;
+      }
+    }
     return this.svc.reschedule(businessId, id, dto, user?.sub);
   }
 
