@@ -13,8 +13,9 @@ import {
   ValidateNested,
   IsIn,
   IsNumberString,
+  IsBooleanString,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class BusinessParamDto {
   @IsUUID()
@@ -50,7 +51,9 @@ export class ListStaffQueryDto {
   @Min(1)
   @Max(100)
   pageSize: number = 20;
-  @IsOptional() @Type(() => Boolean) @IsBoolean() activeOnly: boolean = true;
+  @IsOptional()
+  @IsBooleanString()
+  activeOnly?: string;
 }
 
 export class CreateStaffDto {

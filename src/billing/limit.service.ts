@@ -7,7 +7,7 @@ import {
   services as servicesTable,
   bookings as bookingsTable,
 } from '@app/db/schema';
-import { and, count, eq, gte, lte } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lte } from 'drizzle-orm';
 import {
   ForbiddenAppError,
   NotFoundAppError,
@@ -147,7 +147,12 @@ export class LimitsService {
     const [row] = await this.db
       .select({ c: count() })
       .from(staffTable)
-      .where(eq(staffTable.businessId, businessId));
+      .where(
+        and(
+          eq(staffTable.businessId, businessId),
+          isNull(staffTable.deletedAt),
+        ),
+      );
     return Number(row?.c ?? 0);
   }
 

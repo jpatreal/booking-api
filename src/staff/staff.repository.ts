@@ -26,8 +26,10 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
   protected buildWhere(args?: ListArgs) {
     if (!args) return undefined;
     const { businessId, q, activeOnly } = args;
+    console.log(activeOnly);
     return and(
       eq(staffTable.businessId, businessId),
+      isNull(staffTable.deletedAt),
       activeOnly ? eq(staffTable.isActive, true) : undefined,
       q ? ilike(staffTable.name, `%${q}%`) : undefined,
     );

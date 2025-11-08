@@ -38,12 +38,14 @@ export class StaffService {
   ) {}
 
   async list(businessId: string, q: ListStaffQueryDto) {
+    const activeOnly =
+      q.activeOnly !== undefined ? q.activeOnly === 'true' : true;
     return this.staffCache.getList(
       businessId,
-      { q: q.q, page: q.page, pageSize: q.pageSize, activeOnly: q.activeOnly },
+      { q: q.q, page: q.page, pageSize: q.pageSize, activeOnly },
       async () =>
         await this.repo.list(
-          { businessId, q: q.q, activeOnly: q.activeOnly },
+          { businessId, q: q.q, activeOnly },
           q.page,
           q.pageSize,
         ),

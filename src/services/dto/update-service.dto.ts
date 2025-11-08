@@ -13,6 +13,10 @@ export class UpdateServiceDto {
   name?: string;
 
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
   @IsInt()
   @IsPositive()
   durationMin?: number;
