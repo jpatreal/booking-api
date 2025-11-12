@@ -65,6 +65,12 @@ export class BookingsClientController {
     return this.svc.publicAvailability(businessId, q);
   }
 
+  @Get('config')
+  @ResMessage('Public booking config')
+  async config(@Param() { businessId }: BizParamDto) {
+    return this.svc.publicConfig(businessId);
+  }
+
   @Post()
   @ResMessage('Public booking created')
   async createPublic(

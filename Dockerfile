@@ -1,7 +1,7 @@
 FROM node:20-alpine AS base
 ENV PNPM_HOME=/root/.local/share/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@8.15.6 --activate
+RUN corepack enable && corepack prepare pnpm@10.20.0 --activate
 RUN apk add --no-cache libc6-compat python3 make g++
 
 WORKDIR /app

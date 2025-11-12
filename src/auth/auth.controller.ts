@@ -133,7 +133,7 @@ export class AuthController {
 
   @UseGuards(JwtAccessGuard)
   @Get('me')
-  me(@Req() req: Request & { user: JwtAccessPayload }) {
-    return req.user;
+  async me(@Req() req: Request & { user: JwtAccessPayload }) {
+    return await this.auth.getMe(req.user.sub);
   }
 }

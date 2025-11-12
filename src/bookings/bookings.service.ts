@@ -98,11 +98,13 @@ export class BookingsService {
     bizHoursRows: (typeof businessHours.$inferSelect)[],
     staffAvailRows: (typeof staffAvailability.$inferSelect)[],
   ) {
-    const startLocal = toZonedTime(startUtc, bizTz);
-    const endLocal = toZonedTime(endUtc, bizTz);
+    const timeZone = bizTz || 'UTC';
 
-    const startDow = startLocal.getDay();
-    const endDow = endLocal.getDay();
+    const startLocal = toZonedTime(startUtc, timeZone);
+    const endLocal = toZonedTime(endUtc, timeZone);
+
+    let startDow = startLocal.getDay();
+    let endDow = endLocal.getDay();
 
     if (startDow !== endDow) return false;
 
@@ -113,14 +115,19 @@ export class BookingsService {
     const startHHMM = toHHMMSS(startLocal);
     const endHHMM = toHHMMSS(endLocal);
 
+    // --- Business hours ---
     const bizBlock = bizHoursRows.find((b) => b.dayOfWeek === startDow);
     if (!bizBlock) return false;
 
     const withinBusiness =
       bizBlock.openTimeLocal <= startHHMM && endHHMM <= bizBlock.closeTimeLocal;
+
     if (!withinBusiness) return false;
 
+    // --- Staff availability ---
     const staffBlocks = staffAvailRows.filter((a) => a.dayOfWeek === startDow);
+    if (staffBlocks.length === 0) return false;
+
     const withinStaff = staffBlocks.some(
       (a) => a.startTimeLocal <= startHHMM && endHHMM <= a.endTimeLocal,
     );
@@ -349,11 +356,9 @@ export class BookingsService {
 
   // ================= Public / Client
 
-  zonedYmdTimeToUtc(ymd: string, hhmmss: string, tz: string) {
-    const [Y, M, D] = ymd.split('-').map(Number);
-    const [h, m, s] = hhmmss.split(':').map(Number);
-    const localWallClock = new Date(Date.UTC(Y, M - 1, D, h, m, s || 0, 0));
-    return fromZonedTime(localWallClock, tz);
+  zonedYmdTimeToUtc(ymd: string, hhmmss: string, tz: string): Date {
+    const localIso = `${ymd}T${hhmmss}`;
+    return fromZonedTime(localIso, tz);
   }
 
   async createPublic(
@@ -486,5 +491,31 @@ export class BookingsService {
     const result = { dateLocal: ymd, slots };
     await this.cache.setFreeSlots(businessId, svc.id, stf.id, ymd, result, 30);
     return result;
+  }
+
+  async publicConfig(businessId: string) {
+    const biz = await this.repo.getBusiness(businessId);
+    if (!biz) throw new NotFoundAppError('Business not found');
+
+    const [svcList, staffList] = await Promise.all([
+      this.repo.listPublicServices(businessId),
+      this.repo.listPublicStaffForServices(businessId),
+    ]);
+
+    return {
+      business: {
+        id: biz.id,
+        name: biz.name,
+        slug: biz.slug,
+        timezone: biz.timezone || 'Asia/Manila',
+
+        logoUrl: null,
+        primaryColor: '#3b82f6',
+        tagline: 'Book your appointment in seconds.',
+        address: null,
+      },
+      services: svcList,
+      staff: staffList,
+    };
   }
 }

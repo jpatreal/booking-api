@@ -1,7 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { BaseRepository, PageResult } from '@app/common/db/base.repository';
 import type { DB } from '@app/db';
-import { and, eq, ilike, isNull, sql, desc } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  ilike,
+  isNull,
+  sql,
+  desc,
+  inArray,
+  lt,
+  gt,
+} from 'drizzle-orm';
 import {
   staff as staffTable,
   staffServices as staffServicesTable,
@@ -9,6 +19,7 @@ import {
   staffTimeOff as staffTimeOffTable,
   services as servicesTable,
   bookings as bookingsTable,
+  bookings,
 } from '@app/db/schema';
 
 interface ListArgs {
@@ -175,6 +186,26 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
       .where(eq(staffTimeOffTable.id, id))
       .returning();
     return row;
+  }
+
+  async findOverlappingBookings(
+    staffId: string,
+    startUtc: Date,
+    endUtc: Date,
+    opts: { statuses: string[]; includeBuffers?: boolean },
+  ) {
+    return this.db
+      .select()
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.staffId, staffId),
+          inArray(bookings.status, ['PENDING', 'CONFIRMED']),
+          isNull(bookings.deletedAt),
+          lt(bookings.startUtc, endUtc),
+          gt(bookings.endUtc, startUtc),
+        ),
+      );
   }
 
   // ── Walk-in booking helper (find conflicts)

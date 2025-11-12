@@ -189,6 +189,16 @@ export class BusinessesRepository {
       : await this.findBySlug(idOrSlug);
   }
 
+  async findAndGetBusinessTimeZone(id: string) {
+    const row = await this.db.query.businesses.findFirst({
+      where: (t, { eq, and, isNull }) => and(eq(t.id, id), isNull(t.deletedAt)),
+      columns: {
+        timezone: true,
+      },
+    });
+    return row;
+  }
+
   async list(user: string, params: ListParams = {}) {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));

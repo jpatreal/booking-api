@@ -8,6 +8,9 @@ import {
   customers,
   outbox,
   auditLog,
+  services,
+  staff,
+  staffServices,
 } from '@app/db/schema';
 import {
   and,
@@ -366,5 +369,82 @@ export class BookingsRepository {
           and(eq(t.businessId, businessId), eq(t.email, email)),
       }))
     );
+  }
+
+  async listPublicServices(businessId: string) {
+    return this.db
+      .select({
+        id: services.id,
+        name: services.name,
+        description: services.description,
+        durationMin: services.durationMin,
+        priceCents: services.priceCents,
+        capacity: services.capacity,
+      })
+      .from(services)
+      .where(
+        and(
+          eq(services.businessId, businessId),
+          isNull(services.deletedAt),
+          eq(services.isActive, true),
+          // eq(services.isBookable, true),
+        ),
+      );
+  }
+
+  async listPublicStaffForServices(businessId: string) {
+    const rows = await this.db
+      .select({
+        staffId: staff.id,
+        staffName: staff.name,
+        avatarUrl: staff.imageUrl,
+        bio: staff.bio,
+        serviceId: staffServices.serviceId,
+      })
+      .from(staff)
+      .innerJoin(
+        staffServices,
+        and(
+          eq(staffServices.staffId, staff.id),
+          isNull(staffServices.deletedAt),
+          eq(staffServices.isBookable, true),
+        ),
+      )
+      .where(
+        and(
+          eq(staff.businessId, businessId),
+          isNull(staff.deletedAt),
+          eq(staff.isActive, true),
+        ),
+      );
+
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        avatarUrl: string | null;
+        bio: string | null;
+        serviceIds: string[];
+      }
+    >();
+
+    for (const row of rows) {
+      if (!map.has(row.staffId)) {
+        map.set(row.staffId, {
+          id: row.staffId,
+          name: row.staffName,
+          avatarUrl: row.avatarUrl ?? null,
+          bio: row.bio ?? null,
+          serviceIds: [],
+        });
+      }
+
+      if (row.serviceId) {
+        map.get(row.staffId)!.serviceIds.push(row.serviceId);
+      }
+    }
+
+    return Array.from(map.values());
   }
 }

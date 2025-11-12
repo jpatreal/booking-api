@@ -433,6 +433,46 @@ export class AuthService {
       .where(eq(users.id, userId));
   }
 
+  async getMe(userId: string) {
+    const user = await this.db.query.users.findFirst({
+      where: (t, { eq }) => eq(t.id, userId),
+    });
+
+    if (!user) {
+      throw new NotFoundAppError('User not found', { userId });
+    }
+
+    const rows = await this.db
+      .select({
+        membershipId: memberships.id,
+        role: memberships.role,
+        disabledAt: memberships.disabledAt,
+        businessId: businesses.id,
+        businessName: businesses.name,
+        businessSlug: businesses.slug,
+        businessStatus: businesses.status,
+        businessPlan: businesses.plan,
+      })
+      .from(memberships)
+      .innerJoin(businesses, eq(memberships.businessId, businesses.id))
+      .where(eq(memberships.userId, userId));
+
+    return {
+      id: user.id,
+      email: user.email,
+      memberships: rows.map((m) => ({
+        membershipId: m.membershipId,
+        businessId: m.businessId,
+        businessName: m.businessName,
+        businessSlug: m.businessSlug,
+        role: m.role,
+        disabledAt: m.disabledAt,
+        status: m.businessStatus,
+        plan: m.businessPlan,
+      })),
+    };
+  }
+
   // ================================ Cache private helpers ================================
 
   private async getSignupKeyByHashCached(hash: string) {

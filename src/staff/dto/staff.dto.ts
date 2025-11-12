@@ -109,12 +109,15 @@ export class BulkUpsertAvailabilityDto {
   @ValidateNested({ each: true })
   @Type(() => UpsertAvailabilityDto)
   items!: UpsertAvailabilityDto[];
+
+  @IsOptional() @IsBoolean() force?: boolean;
 }
 
 export class CreateTimeOffDto {
   @IsString() startUtc!: string;
   @IsString() endUtc!: string;
   @IsOptional() @IsString() reason?: string;
+  @IsOptional() @IsBoolean() force?: boolean;
 }
 
 export class WalkInBookingDto {

@@ -84,7 +84,7 @@ export const businesses = pgTable(
     ...baseModel,
     name: text('name').notNull(),
     slug: text('slug').notNull(),
-    timezone: text('timezone').notNull().default('UTC'),
+    timezone: text('timezone').notNull().default('Asia/Manila'),
     plan: planEnum('plan').notNull().default('TRIAL'),
     status: subscriptionStatus('status').notNull().default('trialing'),
     trialEndsAt: timestamp('trialEndsAt', { withTimezone: true }),

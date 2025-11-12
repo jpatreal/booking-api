@@ -26,6 +26,9 @@ import {
 } from '@app/common/errors/pg-like.error';
 import { StaffCache } from './staff.cache';
 import { AuditLogService } from '@app/audit-log/audit-log.service';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { addDays, format } from 'date-fns';
+import { BusinessesRepository } from '@app/businesses/businesses.repository';
 
 @Injectable()
 export class StaffService {
@@ -35,6 +38,7 @@ export class StaffService {
     private readonly limits: LimitsService,
     private readonly staffCache: StaffCache,
     private readonly audit: AuditLogService,
+    private readonly bizRepo: BusinessesRepository,
   ) {}
 
   async list(businessId: string, q: ListStaffQueryDto) {
@@ -241,11 +245,125 @@ export class StaffService {
     actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
+
+    if (!dto?.items?.length) {
+      throw new BadRequestException('No availability items provided');
+    }
+
+    const byDay = new Map<
+      number,
+      { startTimeLocal: string; endTimeLocal: string }[]
+    >();
+    for (const it of dto.items) {
+      const day = Number(it.dayOfWeek);
+      if (!Number.isInteger(day) || day < 1 || day > 7)
+        throw new BadRequestException(`Invalid dayOfWeek: ${it.dayOfWeek}`);
+
+      const norm = (t: string) =>
+        /^\d{2}:\d{2}:\d{2}$/.test(t) ? t : `${t}:00`;
+      const startTimeLocal = norm(it.startTimeLocal);
+      const endTimeLocal = norm(it.endTimeLocal);
+
+      this.assertLocalTimeRange(startTimeLocal, endTimeLocal);
+
+      const arr = byDay.get(day) ?? [];
+      arr.push({ startTimeLocal, endTimeLocal });
+      byDay.set(day, arr);
+    }
+
+    for (const [, items] of byDay) {
+      this.assertNoOverlapLocalRanges(items);
+    }
+
+    const force = (dto as any).force === true;
+    const N_DAYS = 30;
+    let conflictsFound = 0;
+    const conflictSamples: Array<{
+      dateLocal: string;
+      startUtc: string;
+      endUtc: string;
+      bookingId?: string;
+    }> = [];
+
+    if (!force) {
+      const staff = await this.repo.findById(staffId, { businessId });
+      if (!staff) throw new NotFoundException('Staff not found');
+      const biz = await this.bizRepo.findAndGetBusinessTimeZone(businessId);
+      const nowInTz = toZonedTime(new Date(), biz.timezone);
+      const todayYmd = format(nowInTz, 'yyyy-MM-dd');
+
+      for (let i = 0; i < N_DAYS; i++) {
+        const localDate = addDays(new Date(todayYmd + 'T00:00:00'), i);
+        const dowJs = localDate.getDay();
+        const dayOfWeek = dowJs === 0 ? 7 : dowJs;
+
+        const items = byDay.get(dayOfWeek);
+        if (!items || items.length === 0) continue;
+
+        const ymd = format(localDate, 'yyyy-MM-dd');
+
+        for (const w of items) {
+          const startUtc = this.toUtcFromLocalYmdTime(
+            ymd,
+            w.startTimeLocal,
+            biz.timezone,
+          );
+          const endUtc = this.toUtcFromLocalYmdTime(
+            ymd,
+            w.endTimeLocal,
+            biz.timezone,
+          );
+
+          const overlaps = await this.repo.findOverlappingBookings(
+            staffId,
+            startUtc,
+            endUtc,
+            { statuses: ['PENDING', 'CONFIRMED'] },
+          );
+
+          if (overlaps.length) {
+            conflictsFound += overlaps.length;
+            for (const b of overlaps.slice(0, 3)) {
+              conflictSamples.push({
+                dateLocal: ymd,
+                startUtc: startUtc.toISOString(),
+                endUtc: endUtc.toISOString(),
+                bookingId: (b as any).id,
+              });
+            }
+          }
+        }
+      }
+
+      if (conflictsFound > 0) {
+        throw new BadRequestException({
+          message: 'Availability changes conflict with existing bookings',
+          conflictsFound,
+          samples: conflictSamples,
+          hint: 'Use force=true to proceed, then reschedule or cancel affected bookings.',
+        });
+      }
+    }
+
     const results = await this.db.transaction(async (tx) => {
       const arr: any[] = [];
-      for (const item of dto.items) {
-        arr.push(await this.repo.upsertAvailability(staffId, item, tx));
+      for (const it of dto.items) {
+        const day = Number(it.dayOfWeek);
+        const norm = (t: string) =>
+          /^\d{2}:\d{2}:\d{2}$/.test(t) ? t : `${t}:00`;
+        arr.push(
+          await this.repo.upsertAvailability(
+            staffId,
+            {
+              dayOfWeek: day,
+              startTimeLocal: norm(it.startTimeLocal),
+              endTimeLocal: norm(it.endTimeLocal),
+            },
+            tx,
+          ),
+        );
       }
+
       await this.audit.logInTx(tx, {
         businessId,
         actorUserId,
@@ -254,12 +372,15 @@ export class StaffService {
         entityId: staffId,
         meta: this.audit.buildMeta({
           count: dto.items.length,
-          days: dto.items.map((i) => i.dayOfWeek).slice(0, 14),
+          forced: force,
         }),
       });
+
       return arr;
     });
+
     await this.staffCache.touchAvailability(staffId);
+
     return results;
   }
 
@@ -293,7 +414,7 @@ export class StaffService {
     return row;
   }
 
-  // ===== Time off =====
+  // ========== Time off =============
   async listTimeOff(businessId: string, staffId: string) {
     await this.ensureStaffInBusiness(businessId, staffId);
     return this.staffCache.listTimeOff(staffId, async () =>
@@ -308,7 +429,38 @@ export class StaffService {
     actorUserId?: string,
   ) {
     await this.ensureStaffInBusiness(businessId, staffId);
-    const row = await this.repo.createTimeOff(staffId, dto);
+
+    const startUtc = new Date(dto.startUtc);
+    const endUtc = new Date(dto.endUtc);
+    this.assertRange(startUtc, endUtc);
+
+    const conflicts = await this.repo.findOverlappingBookings(
+      staffId,
+      startUtc,
+      endUtc,
+      { statuses: ['PENDING', 'CONFIRMED'] },
+    );
+
+    const force = dto.force === true;
+
+    if (conflicts.length && !force) {
+      throw new BadRequestException({
+        message: 'Conflicting bookings exist in this time-off range',
+        conflicts: conflicts.map((b) => ({
+          id: b.id,
+          status: b.status,
+          startUtc: b.startUtc,
+          endUtc: b.endUtc,
+          customerName: (b as any).customerName,
+        })),
+      });
+    }
+
+    const row = await this.repo.createTimeOff(staffId, {
+      ...dto,
+      startUtc,
+      endUtc,
+    });
 
     await this.audit.log({
       businessId,
@@ -321,10 +473,13 @@ export class StaffService {
         startUtc: row.startUtc,
         endUtc: row.endUtc,
         reason: row.reason ?? undefined,
+        forced: force,
+        conflictsFound: conflicts.length,
       }),
     });
 
     await this.staffCache.touchTimeOff(staffId);
+
     return row;
   }
 
@@ -439,5 +594,62 @@ export class StaffService {
   private async ensureStaffInBusiness(businessId: string, staffId: string) {
     const row = await this.repo.findById(staffId, { businessId });
     if (!row) throw new NotFoundException('Staff not found');
+  }
+
+  // Parse 'HH:MM[:SS]' into numbers and validate
+  private parseLocalTimeOrThrow(hhmmss: string) {
+    const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(hhmmss);
+    if (!m) throw new BadRequestException(`Invalid time format: ${hhmmss}`);
+    const h = Number(m[1]),
+      min = Number(m[2]),
+      s = Number(m[3] ?? 0);
+    if (h < 0 || h > 23 || min < 0 || min > 59 || s < 0 || s > 59)
+      throw new BadRequestException(`Invalid time components: ${hhmmss}`);
+    return { h, min, s };
+  }
+
+  private assertRange(start: Date, end: Date, allowEqual = false) {
+    if (!(start instanceof Date) || isNaN(start.getTime()))
+      throw new BadRequestException('Invalid start date');
+    if (!(end instanceof Date) || isNaN(end.getTime()))
+      throw new BadRequestException('Invalid end date');
+    if (start.getTime() > end.getTime())
+      throw new BadRequestException('startUtc must be < endUtc');
+    if (!allowEqual && start.getTime() === end.getTime())
+      throw new BadRequestException('startUtc and endUtc cannot be equal');
+  }
+
+  private assertLocalTimeRange(startHHMMSS: string, endHHMMSS: string) {
+    const a = this.parseLocalTimeOrThrow(startHHMMSS);
+    const b = this.parseLocalTimeOrThrow(endHHMMSS);
+    const aMin = a.h * 60 + a.min + a.s / 60;
+    const bMin = b.h * 60 + b.min + b.s / 60;
+    if (!(aMin < bMin))
+      throw new BadRequestException('startTimeLocal must be < endTimeLocal');
+  }
+
+  // detect overlap among many local ranges for the SAME day
+  private assertNoOverlapLocalRanges(
+    items: Array<{ startTimeLocal: string; endTimeLocal: string }>,
+  ) {
+    const toMin = (t: string) => {
+      const { h, min, s } = this.parseLocalTimeOrThrow(t);
+      return h * 60 + min + s / 60;
+    };
+    const ranges = items
+      .map((i) => ({ s: toMin(i.startTimeLocal), e: toMin(i.endTimeLocal) }))
+      .sort((x, y) => x.s - y.s);
+    for (let i = 1; i < ranges.length; i++) {
+      if (ranges[i].s < ranges[i - 1].e) {
+        throw new BadRequestException(
+          'Overlapping availability windows in payload for the same day',
+        );
+      }
+    }
+  }
+
+  private toUtcFromLocalYmdTime(ymd: string, time: string, tz: string) {
+    const localIso = `${ymd}T${time}`;
+    return fromZonedTime(localIso, tz);
   }
 }
