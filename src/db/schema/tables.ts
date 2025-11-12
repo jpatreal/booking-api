@@ -12,6 +12,7 @@ import {
   smallint,
   check,
   jsonb,
+  varchar,
 } from 'drizzle-orm/pg-core';
 import { baseModel } from './base';
 import { sql } from 'drizzle-orm';
@@ -85,14 +86,28 @@ export const businesses = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     timezone: text('timezone').notNull().default('Asia/Manila'),
+
     plan: planEnum('plan').notNull().default('TRIAL'),
     status: subscriptionStatus('status').notNull().default('trialing'),
     trialEndsAt: timestamp('trialEndsAt', { withTimezone: true }),
     planRenewsAt: timestamp('planRenewsAt', { withTimezone: true }),
     suspendedAt: timestamp('suspendedAt', { withTimezone: true }),
     limitsJson: jsonb('limitsJson'),
+
+    logoUrl: text('logoUrl'),
+    primaryColor: varchar('primaryColor', { length: 9 })
+      .notNull()
+      .default('#3b82f6'),
+    tagline: text('tagline').default('Book your appointment in seconds.'),
+    addressJson: jsonb('addressJson'),
   },
-  (t) => [uniqueIndex('business_slug_uq').on(t.slug)],
+  (t) => [
+    uniqueIndex('business_slug_uq').on(t.slug),
+    check(
+      'biz_color_ck',
+      sql`${t.primaryColor} ~* '^#([0-9a-f]{3}|[0-9a-f]{6})$'`,
+    ),
+  ],
 );
 
 export const businessHours = pgTable(

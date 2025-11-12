@@ -13,6 +13,7 @@ import {
 import { BusinessesCache } from './business.cache';
 import { AuditLogService } from '@app/audit-log/audit-log.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
+import { CreateBusinessDto } from './dto/create-business.dto';
 
 const OWNER_MANAGER_LIMIT = 2;
 
@@ -33,7 +34,7 @@ export class BusinessesService {
 
   async createOwnedForUser(
     userId: string,
-    input: CreateBusinessInput,
+    input: CreateBusinessDto,
     hours: HourItem[] = [],
   ) {
     const count = await this.repo.countOwnedOrManaged(userId);
@@ -60,6 +61,10 @@ export class BusinessesService {
             name: input.name,
             slug: input.slug,
             timezone: input.timezone,
+            logoUrl: input.logoUrl ?? null,
+            primaryColor: input.primaryColor ?? '#3b82f6',
+            tagline: input.tagline ?? 'Book your appointment in seconds.',
+            address: input.address ?? null,
           },
           hours: this.summarizeHours(hours),
         }),
@@ -69,10 +74,11 @@ export class BusinessesService {
       await this.bizCache.invalidateEntity(created.id, created.slug);
       return created;
     } catch (e: any) {
-      if (e?.code === '23505')
+      if (e?.code === '23505') {
         throw new BadRequestException(
           'Slug already exists. Please choose another.',
         );
+      }
       throw e;
     }
   }

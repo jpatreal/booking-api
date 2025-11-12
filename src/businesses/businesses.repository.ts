@@ -15,6 +15,8 @@ import { DRIZZLE } from '@app/db/db.module';
 import { businesses, businessHours, memberships } from '@app/db/schema';
 import { Inject } from '@nestjs/common';
 import { generateUniqueSlug } from '@app/common/utils/slug.util';
+import { CreateBusinessDto } from './dto/create-business.dto';
+import { UpdateBusinessDto } from './dto/update-business.dto';
 
 export interface CreateBusinessInput {
   name: string;
@@ -110,15 +112,30 @@ export class BusinessesRepository {
 
   async createOwnedWithHours(
     ownerUserId: string,
-    input: CreateBusinessInput,
+    input: CreateBusinessDto,
     hours: HourItem[] = [],
   ) {
     const slug = await generateUniqueSlug(this.db, businesses, input.name);
 
     const biz = await this.db.transaction(async (tx) => {
+      const now = new Date();
       const [created] = await tx
         .insert(businesses)
-        .values({ name: input.name, slug, timezone: input.timezone ?? 'UTC' })
+        .values({
+          name: input.name,
+          slug: input.slug,
+          timezone: input.timezone ?? 'Asia/Manila',
+
+          logoUrl: input.logoUrl ?? null,
+          primaryColor: input.primaryColor ?? '#3b82f6',
+          tagline: input.tagline ?? 'Book your appointment in seconds.',
+          addressJson: input.address
+            ? sql.raw(JSON.stringify(input.address))
+            : null,
+
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning();
 
       await tx.insert(memberships).values({
@@ -274,16 +291,28 @@ export class BusinessesRepository {
     };
   }
 
-  async update(id: string, patch: UpdateBusinessInput) {
+  async update(id: string, input: UpdateBusinessDto) {
     const exists = await this.findById(id);
     if (!exists) throw new NotFoundException('Business not found');
+    const patch: any = {
+      updatedAt: new Date(),
+    };
+
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.timezone !== undefined) patch.timezone = input.timezone;
+    if (input.logoUrl !== undefined) patch.logoUrl = input.logoUrl ?? null;
+    if (input.primaryColor !== undefined)
+      patch.primaryColor = input.primaryColor;
+    if (input.tagline !== undefined) patch.tagline = input.tagline ?? null;
+    if (input.address !== undefined) {
+      patch.addressJson = input.address
+        ? sql.raw(JSON.stringify(input.address))
+        : null;
+    }
 
     const [row] = await this.db
       .update(businesses)
-      .set({
-        name: patch.name ?? exists.name,
-        timezone: patch.timezone ?? exists.timezone,
-      })
+      .set(patch)
       .where(eq(businesses.id, id))
       .returning();
     return row!;
