@@ -9,6 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { BusinessHoursPayloadDto } from './business-hours.dto';
+import { BusinessContactDto } from './business-contact.dto';
 
 export class AddressDto {
   @IsOptional()
@@ -72,6 +73,11 @@ export class CreateBusinessDto {
   @ValidateNested()
   @Type(() => AddressDto)
   address?: AddressDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BusinessContactDto)
+  contact?: BusinessContactDto;
 
   @IsOptional()
   @ValidateNested()

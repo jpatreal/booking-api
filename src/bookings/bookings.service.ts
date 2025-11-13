@@ -513,6 +513,7 @@ export class BookingsService {
         primaryColor: biz.primaryColor ?? '#3b82f6',
         tagline: biz.tagline ?? 'Book your appointment in seconds.',
         address: biz.addressJson ?? null,
+        contact: biz.contactJson ?? null,
       },
       services: svcList,
       staff: staffList,

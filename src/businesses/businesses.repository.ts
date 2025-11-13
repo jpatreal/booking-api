@@ -123,15 +123,15 @@ export class BusinessesRepository {
         .insert(businesses)
         .values({
           name: input.name,
-          slug: input.slug,
+          slug: slug,
           timezone: input.timezone ?? 'Asia/Manila',
 
           logoUrl: input.logoUrl ?? null,
           primaryColor: input.primaryColor ?? '#3b82f6',
           tagline: input.tagline ?? 'Book your appointment in seconds.',
-          addressJson: input.address
-            ? sql.raw(JSON.stringify(input.address))
-            : null,
+          addressJson: input.address ? (input.address as any) : null,
+
+          contactJson: input.contact ? (input.contact as any) : null,
 
           createdAt: now,
           updatedAt: now,
@@ -305,9 +305,10 @@ export class BusinessesRepository {
       patch.primaryColor = input.primaryColor;
     if (input.tagline !== undefined) patch.tagline = input.tagline ?? null;
     if (input.address !== undefined) {
-      patch.addressJson = input.address
-        ? sql.raw(JSON.stringify(input.address))
-        : null;
+      patch.addressJson = input.address ? (input.address as any) : null;
+    }
+    if (input.contact !== undefined) {
+      patch.contactJson = input.contact ? (input.contact as any) : null;
     }
 
     const [row] = await this.db

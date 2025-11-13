@@ -100,6 +100,7 @@ export const businesses = pgTable(
       .default('#3b82f6'),
     tagline: text('tagline').default('Book your appointment in seconds.'),
     addressJson: jsonb('addressJson'),
+    contactJson: jsonb('contactJson'),
   },
   (t) => [
     uniqueIndex('business_slug_uq').on(t.slug),

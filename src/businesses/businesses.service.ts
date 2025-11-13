@@ -65,6 +65,7 @@ export class BusinessesService {
             primaryColor: input.primaryColor ?? '#3b82f6',
             tagline: input.tagline ?? 'Book your appointment in seconds.',
             address: input.address ?? null,
+            contact: input.contact ?? null,
           },
           hours: this.summarizeHours(hours),
         }),
@@ -141,6 +142,7 @@ export class BusinessesService {
             ...(patch.name ? { name: patch.name } : {}),
             ...(patch.slug ? { slug: patch.slug } : {}),
             ...(patch.timezone ? { timezone: patch.timezone } : {}),
+            ...(patch.contact ? { contact: patch.contact } : {}),
           },
           hours: hours ? this.summarizeHours(hours) : undefined,
           before: {
