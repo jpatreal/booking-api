@@ -388,6 +388,7 @@ export const bookings = pgTable(
     depositCents: integer('depositCents').default(0),
   },
   (t) => [
+    index('booking_business_time_idx').on(t.businessId, t.startUtc),
     index('booking_business_idx').on(t.businessId),
     index('booking_staff_time_idx').on(t.staffId, t.startUtc, t.endUtc),
     index('booking_customer_idx').on(t.customerId),

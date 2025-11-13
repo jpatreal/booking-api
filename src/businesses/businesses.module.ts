@@ -4,6 +4,8 @@ import { BusinessesRepository } from './businesses.repository';
 import { BusinessesController } from './businesses.controller';
 import { BusinessesCache } from './business.cache';
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
+import { DashboardRepository } from './dashboard.repository';
+import { DashboardService } from './dashboard.service';
 
 @Module({
   providers: [
@@ -11,6 +13,8 @@ import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
     BusinessesRepository,
     BusinessesCache,
     RateLimitService,
+    DashboardRepository,
+    DashboardService,
   ],
   exports: [BusinessesService, BusinessesRepository],
   controllers: [BusinessesController],

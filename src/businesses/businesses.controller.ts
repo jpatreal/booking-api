@@ -27,6 +27,7 @@ import { BusinessesCache } from './business.cache';
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 import { RedisKeys } from '@app/cache/redis-keys';
 import { UnauthorizedAppError } from '@app/common/errors/specialized.errors';
+import { DashboardService } from './dashboard.service';
 
 @UseGuards(JwtAccessGuard)
 @Controller('businesses')
@@ -35,6 +36,7 @@ export class BusinessesController {
     private readonly svc: BusinessesService,
     private readonly bizCache: BusinessesCache,
     private readonly rl: RateLimitService,
+    private readonly dashboardsvc: DashboardService,
   ) {}
 
   private getClientIp(req: Request) {
@@ -69,6 +71,13 @@ export class BusinessesController {
         await this.bizCache.bumpListVersion(user.sub);
         return r;
       });
+  }
+
+  @Get(':businessId/dashboard')
+  @ResMessage('Dashboard overview')
+  async getDashboard(@Param() params: BusinessIdDto) {
+    const businessId = params.businessId;
+    return this.dashboardsvc.getOverview(businessId);
   }
 
   @UseGuards(BusinessAccessGuard, RolesGuard)
