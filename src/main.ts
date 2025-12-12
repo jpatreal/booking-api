@@ -16,6 +16,7 @@ import { SentryScopeMiddleware } from './common/middleware/sentry-scope.middlewa
 import { ResponseInterceptor } from './common/http/response.interceptor';
 
 async function bootstrap() {
+  console.log('BOOT REDIS_URL?', !!process.env.REDIS_URL);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const reflector = app.get(Reflector);
   const config = app.get(ConfigService);

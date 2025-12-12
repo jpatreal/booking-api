@@ -25,13 +25,14 @@ import { RateLimitService } from './common/rate-limit/rate-limit.service';
 
 @Module({
   imports: [
-    AppCacheModule,
-    SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig],
+      ignoreEnvFile: process.env.NODE_ENV === 'production',
       envFilePath: ['.env'],
     }),
+    AppCacheModule,
+    SentryModule.forRoot(),
     DbModule,
     HealthModule,
     ServicesModule,

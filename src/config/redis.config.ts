@@ -7,7 +7,7 @@ export default registerAs('redis', () => {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('REDIS_URL is required in production');
     }
-    return { url: 'redis://default:devpass@localhost:6379/0' };
+    return { url: 'redis://:devpass@localhost:6379/0' };
   }
 
   return { url };
