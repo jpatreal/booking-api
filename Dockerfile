@@ -40,5 +40,4 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=5 \
   CMD node -e "require('net').createConnection({host:'127.0.0.1',port:process.env.PORT||4000},()=>process.exit(0)).on('error',()=>process.exit(1))"
 
-CMD node dist/main.js
-
+CMD node dist/src/main.js
