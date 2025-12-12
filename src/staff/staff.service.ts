@@ -16,6 +16,7 @@ import {
   BulkUpsertAvailabilityDto,
   CreateTimeOffDto,
   WalkInBookingDto,
+  UpdateStaffServiceOverridesDto,
 } from './dto/staff.dto';
 import { and, eq, sql } from 'drizzle-orm';
 import { LimitsService } from '@app/billing/limit.service';
@@ -212,6 +213,41 @@ export class StaffService {
     return this.staffCache.listServices(staffId, async () =>
       this.repo.listStaffServices(staffId),
     );
+  }
+
+  async updateStaffServiceOverrides(
+    businessId: string,
+    staffId: string,
+    serviceId: string,
+    dto: UpdateStaffServiceOverridesDto,
+    actorUserId?: string,
+  ) {
+    await this.ensureStaffInBusiness(businessId, staffId);
+
+    const row = await this.repo.updateStaffServiceOverrides(
+      staffId,
+      serviceId,
+      dto,
+    );
+
+    if (!row) {
+      throw new NotFoundException('Staff service mapping not found');
+    }
+
+    await this.audit.log({
+      businessId,
+      actorUserId,
+      action: 'staffService.updateOverrides',
+      entity: 'Staff',
+      entityId: staffId,
+      meta: this.audit.buildMeta({
+        serviceId,
+        overrides: dto,
+      }),
+    });
+
+    await this.staffCache.touchServices(staffId);
+    return row;
   }
 
   async deleteStaffService(

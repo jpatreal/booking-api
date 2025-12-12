@@ -1,40 +1,55 @@
-import { Body, Controller, Get, Inject, Post, UseGuards } from '@nestjs/common';
-import { DRIZZLE } from '@app/db/db.module';
-import type { DB } from '@app/db';
-import { signupKeys } from '@app/db/schema';
-import { sha256Base64, randomToken } from '@app/common/utils/crypto.util';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+
 import { AdminGuard } from './admin.guard';
+import { AdminService } from './admin.service';
 import { CreateKeysDto } from './dto/create-keys.dto';
+import { businessIdParam, RenewPlanDto } from './dto/renew-plan.dto';
+import { ResMessage } from '@app/common/http/response.decorator';
 
-@Controller('admin/keys')
+@Controller('admin')
 @UseGuards(AdminGuard)
-export class SignupKeysController {
-  constructor(@Inject(DRIZZLE) private readonly db: DB) {}
+export class AdminController {
+  constructor(private readonly admin: AdminService) {}
 
-  @Post()
-  async create(
-    @Body()
-    body: CreateKeysDto,
-  ) {
-    const raw = randomToken(24);
-    const codeHash = sha256Base64(raw);
-    const [row] = await this.db
-      .insert(signupKeys)
-      .values({
-        codeHash,
-        label: body.label,
-        plan: (body.plan ?? 'TRIAL') as any,
-        trialDays: body.trialDays ?? 14,
-        maxUses: body.maxUses ?? 1,
-        emailDomain: body.emailDomain,
-        expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
-      })
-      .returning();
-    return { key: raw, meta: row };
+  @Post('keys')
+  @ResMessage('Sign up key created successfully')
+  async createKey(@Body() body: CreateKeysDto) {
+    return this.admin.createSignupKey(body);
   }
 
-  @Get()
-  async list() {
-    return this.db.select().from(signupKeys);
+  @Get('keys')
+  @ResMessage('Keys list')
+  async listKeys() {
+    return this.admin.listSignupKeys();
+  }
+
+  @Get('businesses')
+  @ResMessage('Business list')
+  async listBusinessesWithOwner() {
+    return this.admin.listBusinessesWithOwner();
+  }
+
+  @Patch('businesses/:businessId/plan/renew')
+  @ResMessage('Business plan renewed successfully')
+  async renewPlan(@Param() param: businessIdParam, @Body() body: RenewPlanDto) {
+    return this.admin.renewPlanForBusiness(param.businessId, body);
+  }
+
+  @Patch('businesses/:businessId/plan/suspend')
+  @ResMessage('Business plan suspended')
+  async suspendPlan(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
+  ) {
+    const updated = await this.admin.suspendBusinessPlan(businessId);
+    return updated;
   }
 }

@@ -6,6 +6,7 @@ import { BusinessesCache } from './business.cache';
 import { RateLimitService } from '@app/common/rate-limit/rate-limit.service';
 import { DashboardRepository } from './dashboard.repository';
 import { DashboardService } from './dashboard.service';
+import { LimitsService } from '@app/billing/limit.service';
 
 @Module({
   providers: [
@@ -15,6 +16,7 @@ import { DashboardService } from './dashboard.service';
     RateLimitService,
     DashboardRepository,
     DashboardService,
+    LimitsService,
   ],
   exports: [BusinessesService, BusinessesRepository],
   controllers: [BusinessesController],

@@ -11,6 +11,7 @@ import {
   services,
   staff,
   staffServices,
+  businessHours,
 } from '@app/db/schema';
 import {
   and,
@@ -387,7 +388,6 @@ export class BookingsRepository {
           eq(services.businessId, businessId),
           isNull(services.deletedAt),
           eq(services.isActive, true),
-          // eq(services.isBookable, true),
         ),
       );
   }
@@ -446,5 +446,84 @@ export class BookingsRepository {
     }
 
     return Array.from(map.values());
+  }
+
+  async listBusinessHours(businessId: string) {
+    return this.db
+      .select({
+        dayOfWeek: businessHours.dayOfWeek,
+        openTimeLocal: businessHours.openTimeLocal,
+        closeTimeLocal: businessHours.closeTimeLocal,
+      })
+      .from(businessHours)
+      .where(eq(businessHours.businessId, businessId))
+      .orderBy(businessHours.dayOfWeek);
+  }
+
+  async listPublicStaffServices(businessId: string) {
+    const rows = await this.db
+      .select({
+        staffId: staffServices.staffId,
+        serviceId: staffServices.serviceId,
+        priceCentsOverride: staffServices.priceCentsOverride,
+        durationMinOverride: staffServices.durationMinOverride,
+      })
+      .from(staffServices)
+      .innerJoin(staff, eq(staffServices.staffId, staff.id))
+      .innerJoin(services, eq(staffServices.serviceId, services.id))
+      .where(
+        and(
+          eq(services.businessId, businessId),
+          eq(staff.businessId, businessId),
+          eq(staffServices.isActive, true),
+          eq(staffServices.isBookable, true),
+        ),
+      );
+
+    return rows;
+  }
+
+  async getPublicBookingByReference(businessId: string, reference: string) {
+    const rows = await this.db
+      .select({
+        id: bookings.id,
+        businessId: bookings.businessId,
+        serviceId: bookings.serviceId,
+        staffId: bookings.staffId,
+        customerName: bookings.customerName,
+        customerEmail: bookings.customerEmail,
+        status: bookings.status,
+        startUtc: bookings.startUtc,
+        endUtc: bookings.endUtc,
+        priceCents: bookings.bookedPriceCents,
+        notes: bookings.notes,
+        serviceName: services.name,
+        staffName: staff.name,
+      })
+      .from(bookings)
+      .innerJoin(services, eq(services.id, bookings.serviceId))
+      .innerJoin(staff, eq(staff.id, bookings.staffId))
+      .where(
+        and(
+          eq(bookings.businessId, businessId),
+          eq(bookings.id, reference),
+          isNull(bookings.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    return rows[0] ?? null;
+  }
+
+  async getBusinessByIdOrSlug(key: string) {
+    return this.db.query.businesses.findFirst({
+      where: (b: any, { or, eq }) => or(eq(b.slug, key), eq(b.id, key)),
+    });
+  }
+
+  async getBusinessBySlug(slug: string) {
+    return this.db.query.businesses.findFirst({
+      where: (b: any, { eq }) => eq(b.slug, slug),
+    });
   }
 }

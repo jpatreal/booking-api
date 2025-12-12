@@ -52,6 +52,7 @@ export const StaffKeys = {
     `rl:staff:delete:${bizId}:${staffId}:ip:${ip}`,
 
   rlStaffSvcUpsert: (staffId: string) => `rl:staff:svc:upsert:${staffId}`,
+  rlStaffSvcOverride: (staffId: string) => `rl:staff:svc:override:${staffId}`,
   rlStaffSvcDelete: (staffId: string, svcId: string) =>
     `rl:staff:svc:del:${staffId}:${svcId}`,
 

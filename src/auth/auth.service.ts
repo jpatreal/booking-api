@@ -62,11 +62,11 @@ export class AuthService {
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DB,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
     private readonly config: ConfigService,
     private readonly tokens: TokensService,
     private readonly mailer: MailerService,
     private readonly membershipInvites: MembershipInviteService,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
     private readonly authCache: AuthCache,
   ) {}
 

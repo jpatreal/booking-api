@@ -35,9 +35,10 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { NoShowBookingDto } from './dto/no-show-booking.dto';
 import { CompleteBookingDto } from './dto/complete-booking.dto';
 import { IdempotencyService } from '@app/common/idempotency/idempotency.service';
+import { BusinessPlanGuard } from '@app/auth/guards/business-plan.guard';
 
 @UseInterceptors(new TimeoutInterceptor())
-@UseGuards(JwtAccessGuard, BusinessAccessGuard, RolesGuard)
+@UseGuards(JwtAccessGuard, BusinessAccessGuard, BusinessPlanGuard, RolesGuard)
 @Controller('businesses/:businessId/bookings')
 export class BookingsController {
   constructor(

@@ -7,12 +7,12 @@ RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* ./ 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 FROM deps AS build
-COPY tsconfig*.json nest-cli.json ./
+COPY tsconfig*.json nest-cli.json ./ 
 COPY src ./src
 COPY scripts ./scripts
 COPY drizzle ./drizzle

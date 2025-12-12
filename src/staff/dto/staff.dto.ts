@@ -14,6 +14,7 @@ import {
   IsIn,
   IsNumberString,
   IsBooleanString,
+  ValidateIf,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -89,6 +90,38 @@ export class UpsertStaffServiceDto {
     | null;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) bufferBeforeMin?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) bufferAfterMin?: number;
+}
+
+export class UpdateStaffServiceOverridesDto {
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsInt()
+  @Min(0)
+  priceCentsOverride?: number | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsInt()
+  @Min(1)
+  durationMinOverride?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(24 * 60)
+  bufferBeforeMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(24 * 60)
+  bufferAfterMin?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isBookable?: boolean;
 }
 
 export class BulkUpsertStaffServicesDto {

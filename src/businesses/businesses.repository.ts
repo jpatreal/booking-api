@@ -49,6 +49,16 @@ export interface ListParams {
   includeDeleted?: boolean;
 }
 
+export interface BusinessSubscriptionInfo {
+  id: string;
+  name: string;
+  plan: string;
+  status: string;
+  trialEndsAt: Date | null;
+  planRenewsAt: Date | null;
+  suspendedAt: Date | null;
+}
+
 @Injectable()
 export class BusinessesRepository {
   constructor(@Inject(DRIZZLE) private readonly db: DB) {}
@@ -57,6 +67,26 @@ export class BusinessesRepository {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       id,
     );
+  }
+
+  async findSubscriptionInfo(
+    businessId: string,
+  ): Promise<BusinessSubscriptionInfo | null> {
+    const row = await this.db.query.businesses.findFirst({
+      where: (t, { eq, and, isNull }) =>
+        and(eq(t.id, businessId), isNull(t.deletedAt)),
+      columns: {
+        id: true,
+        name: true,
+        plan: true,
+        status: true,
+        trialEndsAt: true,
+        planRenewsAt: true,
+        suspendedAt: true,
+      },
+    });
+
+    return (row as BusinessSubscriptionInfo) ?? null;
   }
 
   async countOwnedOrManaged(userId: string) {

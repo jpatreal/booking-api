@@ -64,11 +64,18 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const ip = String(this.getClientIp(req));
     const user = await this.auth.validateLocalUser(dto.email, dto.password);
     if (!user) {
       throw new UnauthorizedAppError('Invalid credentials', {
         hint: 'Check email and password',
       });
+    }
+    const ok = await this.rl.hit(RedisKeys.rlLoginIP(ip), 5, 60);
+    if (!ok) {
+      throw new UnauthorizedAppError(
+        'Too many login attempts. Try again shortly.',
+      );
     }
 
     const pair = await this.auth.issueAuthPair(user.id, undefined, req);
@@ -114,7 +121,12 @@ export class AuthController {
   }
 
   @Post('request-reset')
-  async requestReset(@Body() dto: RequestResetDto) {
+  async requestReset(@Body() dto: RequestResetDto, @Req() req: Request) {
+    const ip = String(this.getClientIp(req));
+    const ok = await this.rl.hit(RedisKeys.rlRequestResetIP(ip), 5, 300);
+    if (!ok) {
+      throw new UnauthorizedAppError('Too many attempts. Try again later.');
+    }
     await this.auth.sendPasswordReset(dto.email);
     return { ok: true };
   }

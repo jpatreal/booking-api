@@ -17,7 +17,6 @@ import {
   staffServices as staffServicesTable,
   staffAvailability as staffAvailabilityTable,
   staffTimeOff as staffTimeOffTable,
-  services as servicesTable,
   bookings as bookingsTable,
   bookings,
 } from '@app/db/schema';
@@ -37,7 +36,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
   protected buildWhere(args?: ListArgs) {
     if (!args) return undefined;
     const { businessId, q, activeOnly } = args;
-    console.log(activeOnly);
     return and(
       eq(staffTable.businessId, businessId),
       isNull(staffTable.deletedAt),
@@ -96,6 +94,53 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
       .where(eq(staffServicesTable.staffId, staffId));
   }
 
+  async updateStaffServiceOverrides(
+    staffId: string,
+    serviceId: string,
+    overrides: {
+      priceCentsOverride?: number | null;
+      durationMinOverride?: number | null;
+      bufferBeforeMin?: number;
+      bufferAfterMin?: number;
+      isActive?: boolean;
+      isBookable?: boolean;
+    },
+  ) {
+    const patch: Partial<typeof staffServicesTable.$inferInsert> = {};
+
+    if ('priceCentsOverride' in overrides)
+      patch.priceCentsOverride = overrides.priceCentsOverride;
+
+    if ('durationMinOverride' in overrides)
+      patch.durationMinOverride = overrides.durationMinOverride;
+
+    if ('bufferBeforeMin' in overrides)
+      patch.bufferBeforeMin = overrides.bufferBeforeMin;
+
+    if ('bufferAfterMin' in overrides)
+      patch.bufferAfterMin = overrides.bufferAfterMin;
+
+    if ('isActive' in overrides) patch.isActive = overrides.isActive;
+
+    if ('isBookable' in overrides) patch.isBookable = overrides.isBookable;
+
+    // nothing to update
+    if (Object.keys(patch).length === 0) return null;
+
+    const [row] = await this.db
+      .update(staffServicesTable)
+      .set(patch)
+      .where(
+        and(
+          eq(staffServicesTable.staffId, staffId),
+          eq(staffServicesTable.serviceId, serviceId),
+        ),
+      )
+      .returning();
+
+    return row ?? null;
+  }
+
   async deleteStaffService(staffId: string, serviceId: string) {
     const [row] = await this.db
       .delete(staffServicesTable)
@@ -109,7 +154,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
     return row;
   }
 
-  // ── Availability
   async upsertAvailability(staffId: string, item: any, dbOrTx?: DB | any) {
     const dbi = this.getDb(dbOrTx);
     const values = {
@@ -157,7 +201,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
     return row;
   }
 
-  // ── TimeOff
   async createTimeOff(staffId: string, dto: any, dbOrTx?: DB | any) {
     const dbi = this.getDb(dbOrTx);
     const [row] = await dbi
@@ -208,7 +251,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
       );
   }
 
-  // ── Walk-in booking helper (find conflicts)
   async findBookingConflicts(staffId: string, startUtc: Date, endUtc: Date) {
     const range = sql`tstzrange(${startUtc}, ${endUtc}, '[)')`;
     return this.db
@@ -223,7 +265,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
       );
   }
 
-  // Custom helpers
   async findByEmail(businessId: string, email: string) {
     const [exist] = await this.db
       .select()
@@ -233,7 +274,6 @@ export class StaffRepository extends BaseRepository<typeof staffTable> {
       )
       .limit(1);
 
-    console.log(exist);
     return exist;
   }
 }

@@ -5,6 +5,7 @@ export const AuthKeys = {
   inviteToken: (token: string) => `auth:invite:${token}`,
   singleUseToken: (hash: string) => `auth:onet:${hash}`,
 
+  rlGlobalIP: (ip: string) => `rl:global:ip:${ip}`,
   rlLoginIP: (ip: string) => `rl:login:ip:${ip}`,
   rlLoginEmail: (email: string) => `rl:login:email:${email}`,
   rlRefreshIP: (ip: string) => `rl:refresh:ip:${ip}`,

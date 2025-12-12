@@ -65,4 +65,7 @@ export const BusinessKeys = {
 
   rlBizReplaceHoursIP: (bizId: string, ip: string) =>
     RL['biz:hours:replace']('biz', bizId, 'ip', ip),
+
+  rlBizSubscriptionIP: (businessId: string, ip: string) =>
+    `rl:biz:${businessId}:subscription:${ip}`,
 } as const;

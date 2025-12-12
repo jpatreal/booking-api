@@ -82,6 +82,23 @@ export class BusinessesController {
 
   @UseGuards(BusinessAccessGuard, RolesGuard)
   @Roles('OWNER', 'MANAGER')
+  @Get(':businessId/subscription')
+  @ResMessage('Business subscription details')
+  async getSubscription(@Param() param: BusinessIdDto, @Req() req: Request) {
+    const ip = this.getClientIp(req);
+    const ok = await this.rl.hit(
+      RedisKeys.rlBizSubscriptionIP(param.businessId, ip),
+      180,
+      60,
+    );
+    if (!ok)
+      throw new UnauthorizedAppError('Too many requests. Try again shortly.');
+
+    return this.svc.getSubscriptionSummary(param.businessId);
+  }
+
+  @UseGuards(BusinessAccessGuard, RolesGuard)
+  @Roles('OWNER', 'MANAGER')
   @Post(':businessId/hours/replace')
   @ResMessage('Business hours replaced successfully')
   async replaceHours(

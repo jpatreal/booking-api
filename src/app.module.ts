@@ -20,6 +20,8 @@ import { RedisModule } from './redis/redis.module';
 import { AppCacheModule } from './cache/cache.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { OutboxModule } from './outbox/outbox.module';
+import { GlobalRateLimitMiddleware } from './common/middleware/global-rl.middleware';
+import { RateLimitService } from './common/rate-limit/rate-limit.service';
 
 @Module({
   imports: [
@@ -46,10 +48,11 @@ import { OutboxModule } from './outbox/outbox.module';
     OutboxModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, RateLimitService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(RequestLogger).forRoutes('*');
+    consumer.apply(GlobalRateLimitMiddleware).forRoutes('*');
   }
 }

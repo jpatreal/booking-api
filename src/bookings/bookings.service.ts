@@ -19,6 +19,8 @@ import {
   ConflictAppError,
   NotFoundAppError,
 } from '@app/common/errors/specialized.errors';
+import { LimitsService } from '@app/billing/limit.service';
+import { isUUID } from '@app/common/utils/validator-util';
 
 type Status = typeof bookings.$inferSelect.status;
 
@@ -28,6 +30,7 @@ export class BookingsService {
     @Inject(DRIZZLE) private readonly db: DB,
     private readonly repo: BookingsRepository,
     private readonly cache: BookingsCache,
+    private readonly limits: LimitsService,
   ) {}
 
   // ---------- Helpers
@@ -169,6 +172,8 @@ export class BookingsService {
     const endUtc = this.toDate(input.endUtc);
     this.assertRange(startUtc, endUtc);
 
+    await this.limits.assertCanCreateBooking(businessId, startUtc);
+
     const { biz, svc, stf, ss } = await this.ensureEntities(
       businessId,
       input.serviceId,
@@ -199,7 +204,6 @@ export class BookingsService {
       throw new ConflictAppError('Staff is on time off during requested time');
     }
 
-    // Capacity & overlap
     const overlapping = await this.repo.countOverlappingActive(
       stf.id,
       startUtc,
@@ -361,8 +365,19 @@ export class BookingsService {
     return fromZonedTime(localIso, tz);
   }
 
+  private async getBusinessByIdOrSlugOrThrow(businessKey: string) {
+    const biz = isUUID(businessKey)
+      ? await this.repo.getBusiness(businessKey)
+      : await this.repo.getBusinessBySlug(businessKey);
+
+    if (!biz) {
+      throw new NotFoundAppError('Business not found');
+    }
+    return biz;
+  }
+
   async createPublic(
-    businessId: string,
+    businessKey: string,
     dto: {
       serviceId: string;
       staffId: string;
@@ -374,8 +389,11 @@ export class BookingsService {
       channelRef?: string;
     },
   ) {
+    const biz = await this.getBusinessByIdOrSlugOrThrow(businessKey);
+    await this.limits.assertBusinessCanAcceptBookings(biz.id);
+
     return this.create(
-      businessId,
+      biz.id,
       {
         ...dto,
         source: 'public',
@@ -385,7 +403,7 @@ export class BookingsService {
   }
 
   async publicAvailability(
-    businessId: string,
+    businessKey: string,
     q: {
       serviceId: string;
       staffId: string;
@@ -394,8 +412,8 @@ export class BookingsService {
       startUtcTo?: string;
     },
   ) {
-    const biz = await this.repo.getBusiness(businessId);
-    if (!biz) throw new NotFoundAppError('Business not found');
+    const biz = await this.getBusinessByIdOrSlugOrThrow(businessKey);
+    const businessId = biz.id;
 
     const svc = await this.repo.getService(businessId, q.serviceId);
     const stf = await this.repo.getStaff(businessId, q.staffId);
@@ -493,13 +511,15 @@ export class BookingsService {
     return result;
   }
 
-  async publicConfig(businessId: string) {
-    const biz = await this.repo.getBusiness(businessId);
-    if (!biz) throw new NotFoundAppError('Business not found');
+  async publicConfig(businessKey: string) {
+    const biz = await this.getBusinessByIdOrSlugOrThrow(businessKey);
+    const businessId = biz.id;
 
-    const [svcList, staffList] = await Promise.all([
+    const [svcList, staffList, staffSvcList, hours] = await Promise.all([
       this.repo.listPublicServices(businessId),
       this.repo.listPublicStaffForServices(businessId),
+      this.repo.listPublicStaffServices(businessId), // 👈 NEW
+      this.repo.listBusinessHours(businessId),
     ]);
 
     return {
@@ -517,6 +537,57 @@ export class BookingsService {
       },
       services: svcList,
       staff: staffList,
+
+      staffServices: (staffSvcList || []).map((ss) => ({
+        staffId: ss.staffId,
+        serviceId: ss.serviceId,
+        priceCentsOverride: ss.priceCentsOverride ?? null,
+        durationMinOverride: ss.durationMinOverride ?? null,
+      })),
+      hours: (hours || []).map((h: any) => ({
+        dayOfWeek: h.dayOfWeek,
+        openTimeLocal: h.openTimeLocal,
+        closeTimeLocal: h.closeTimeLocal,
+      })),
+    };
+  }
+
+  async publicStatus(
+    businessKey: string,
+    q: { reference: string; email?: string },
+  ) {
+    const biz = await this.getBusinessByIdOrSlugOrThrow(businessKey);
+    const businessId = biz.id;
+
+    const booking = await this.repo.getPublicBookingByReference(
+      businessId,
+      q.reference,
+    );
+
+    if (!booking) {
+      throw new NotFoundAppError('Booking not found');
+    }
+
+    if (q.email && booking.customerEmail) {
+      const bEmail = booking.customerEmail.trim().toLowerCase();
+      const qEmail = q.email.trim().toLowerCase();
+      if (bEmail !== qEmail) {
+        throw new NotFoundAppError('Booking not found');
+      }
+    }
+
+    return {
+      id: booking.id,
+      reference: booking.id,
+      status: booking.status,
+      serviceName: booking.serviceName,
+      staffName: booking.staffName,
+      customerName: booking.customerName,
+      customerEmail: booking.customerEmail,
+      startUtc: booking.startUtc?.toISOString?.() ?? booking.startUtc,
+      endUtc: booking.endUtc?.toISOString?.() ?? booking.endUtc,
+      priceCents: booking.priceCents,
+      notes: booking.notes,
     };
   }
 }

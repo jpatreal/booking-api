@@ -14,6 +14,7 @@ import { BusinessesCache } from './business.cache';
 import { AuditLogService } from '@app/audit-log/audit-log.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { CreateBusinessDto } from './dto/create-business.dto';
+import { LimitsService } from '@app/billing/limit.service';
 
 const OWNER_MANAGER_LIMIT = 2;
 
@@ -23,6 +24,7 @@ export class BusinessesService {
     private readonly repo: BusinessesRepository,
     private readonly bizCache: BusinessesCache,
     private readonly audit: AuditLogService,
+    private readonly limits: LimitsService,
   ) {}
 
   private summarizeHours(hours: HourItem[] = []) {
@@ -113,6 +115,50 @@ export class BusinessesService {
 
   async listHours(businessId: string) {
     return this.bizCache.getHours(businessId);
+  }
+
+  async getSubscriptionSummary(businessId: string) {
+    const biz = await this.repo.findSubscriptionInfo(businessId);
+    if (!biz) throw new NotFoundException('Business not found');
+
+    const { limits } = await this.limits.getEffectiveLimits(businessId);
+
+    // Usage
+    const staffCount = await this.limits.countStaff(businessId);
+    const servicesCount = await this.limits.countServices(businessId);
+
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const monthStart = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+    const nextMonthStart = new Date(Date.UTC(y, m + 1, 1, 0, 0, 0, 0));
+
+    const activeBookingsThisMonth = await this.limits.countBookingsInRange(
+      businessId,
+      monthStart,
+      nextMonthStart,
+    );
+
+    return {
+      businessId: biz.id,
+      name: biz.name,
+      plan: biz.plan,
+      status: biz.status,
+      trialEndsAt: biz.trialEndsAt,
+      planRenewsAt: biz.planRenewsAt,
+      suspendedAt: biz.suspendedAt,
+      limits: {
+        staff: limits.staff,
+        services: limits.services,
+        activeBookingsPerMonth: limits.activeBookingsPerMonth,
+        maxServiceDurationMin: limits.maxServiceDurationMin ?? null,
+      },
+      usage: {
+        staffCount,
+        servicesCount,
+        activeBookingsThisMonth,
+      },
+    };
   }
 
   async update(

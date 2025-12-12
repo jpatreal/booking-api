@@ -26,7 +26,8 @@ type Limits = {
 type BusinessRow = {
   id: string;
   plan: Plan;
-  limitsJson: string | null;
+  limitsJson: any | null;
+  trialEndsAt: Date | null;
 };
 
 const PLAN_DEFAULTS: Record<Plan, Limits> = {
@@ -79,6 +80,13 @@ function parseOverride(json: string | null): Partial<Limits> {
 export class LimitsService {
   constructor(@Inject(DRIZZLE) private readonly db: DB) {}
 
+  getLimitsForPlan(plan: Plan, limitsJson?: any | null): Limits {
+    const base = PLAN_DEFAULTS[plan];
+    const override = parseOverride(limitsJson ?? null);
+    const merged: Limits = { ...base, ...override };
+    return merged;
+  }
+
   async assertCanCreateStaff(businessId: string) {
     const { limits } = await this.getEffectiveLimits(businessId);
     if (limits.staff === null) return;
@@ -123,6 +131,29 @@ export class LimitsService {
           current: total,
         },
       );
+    }
+  }
+
+  async assertBusinessCanAcceptBookings(businessId: string) {
+    const biz = await this.getBusiness(businessId);
+    if (!biz) {
+      throw new NotFoundAppError('Business not found', {
+        entity: 'Business',
+        identifier: businessId,
+      });
+    }
+
+    if (biz.plan !== 'TRIAL') return;
+
+    if (!biz.trialEndsAt) return;
+
+    const now = new Date();
+    if (now > biz.trialEndsAt) {
+      throw new ForbiddenAppError('Trial has expired for this business', {
+        code: 'TRIAL_EXPIRED',
+        trialEndedAt: biz.trialEndsAt,
+        plan: biz.plan,
+      });
     }
   }
 
@@ -188,6 +219,7 @@ export class LimitsService {
         id: businesses.id,
         plan: businesses.plan as any,
         limitsJson: businesses.limitsJson,
+        trialEndsAt: businesses.trialEndsAt,
       })
       .from(businesses)
       .where(eq(businesses.id, businessId))

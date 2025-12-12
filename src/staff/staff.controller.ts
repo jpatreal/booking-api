@@ -26,6 +26,7 @@ import {
   StaffServiceParamDto,
   StaffAvailabilityDto,
   StaffTimeOffDto,
+  UpdateStaffServiceOverridesDto,
 } from './dto/staff.dto';
 import { JwtAccessGuard } from '@app/auth/guards/jwt-access.guards';
 import { BusinessAccessGuard } from '@app/common/guards/business-access.guard';
@@ -178,6 +179,31 @@ export class StaffController {
   @ResMessage('Staff services')
   listServices(@Param() params: StaffParamDto) {
     return this.service.listStaffServices(params.businessId, params.staffId);
+  }
+
+  @Roles('OWNER', 'MANAGER')
+  @Patch(':staffId/services/:serviceId')
+  @ResMessage('Staff service overrides updated')
+  async updateServiceOverrides(
+    @Param() params: StaffServiceParamDto,
+    @Body() dto: UpdateStaffServiceOverridesDto,
+    @CurrentUser() user: any,
+  ) {
+    const ok = await this.rl.hit(
+      RedisKeys.rlStaffSvcOverride(params.staffId),
+      60,
+      60,
+    );
+    if (!ok)
+      throw new UnauthorizedAppError('Too many attempts. Try again shortly.');
+
+    return this.service.updateStaffServiceOverrides(
+      params.businessId,
+      params.staffId,
+      params.serviceId,
+      dto,
+      user.sub,
+    );
   }
 
   @Roles('OWNER', 'MANAGER')

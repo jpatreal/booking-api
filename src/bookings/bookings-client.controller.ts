@@ -20,11 +20,11 @@ import { BookingKeys } from '@app/cache/redis-keys';
 
 import { PublicCreateBookingDto } from './dto/public/public-create-booking.dto';
 import { AvailabilityQueryDto } from './dto/public/availability-query.dto';
-import { IsUUID } from 'class-validator';
+import { IsString } from 'class-validator';
 import { IdempotencyService } from '@app/common/idempotency/idempotency.service';
 
 class BizParamDto {
-  @IsUUID()
+  @IsString()
   businessId!: string;
 }
 
@@ -54,6 +54,7 @@ export class BookingsClientController {
     @Req() req: Request,
   ) {
     const ip = this.getIp(req);
+
     const ok = await this.rl.hit(
       BookingKeys.rlPubAvailIP(businessId, ip),
       300,
@@ -109,5 +110,34 @@ export class BookingsClientController {
     }
 
     return this.svc.createPublic(businessId, dto);
+  }
+
+  @Get('status')
+  @ResMessage('Public booking status')
+  async getStatus(
+    @Param() { businessId }: BizParamDto,
+    @Query('reference') reference: string,
+    @Query('email') email: string | undefined,
+    @Req() req: Request,
+  ) {
+    const ref = (reference || '').trim();
+    if (!ref) {
+      throw new BadRequestException('Missing reference');
+    }
+
+    const ip = this.getIp(req);
+    const ok = await this.rl.hit(
+      BookingKeys.rlPubStatusIP(businessId, ip),
+      300,
+      60,
+    );
+    if (!ok) {
+      throw new UnauthorizedAppError('Too many requests. Try again shortly.');
+    }
+
+    return this.svc.publicStatus(businessId, {
+      reference: ref,
+      email: email?.trim(),
+    });
   }
 }

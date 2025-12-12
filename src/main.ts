@@ -4,6 +4,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
+import * as bodyParser from 'body-parser';
 import { ConfigService } from '@nestjs/config';
 import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -19,9 +20,26 @@ async function bootstrap() {
   const reflector = app.get(Reflector);
   const config = app.get(ConfigService);
 
-  app.use(helmet());
+  // const expressApp = app.getHttpAdapter().getInstance();
+
+  // expressApp.set('trust proxy', 1);
+
+  app.use(bodyParser.json({ limit: '1mb' }));
+  app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
+
+  app.use(
+    helmet({
+      contentSecurityPolicy:
+        process.env.NODE_ENV === 'production' ? undefined : false,
+    }),
+  );
+
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
+
   app.use(cookieParser());
   app.use(new RequestIdMiddleware().use);
+  app.use(new SentryScopeMiddleware().use);
+
   const origins = config.get<string[]>('app.cors.origins') ?? [];
   app.enableCors({
     origin: (origin, cb) => {
@@ -43,13 +61,13 @@ async function bootstrap() {
       exceptionFactory: validationExceptionFactory,
     }),
   );
+
   const showStack =
     config.get<string>('app.showErrorStack') === 'true' ||
     process.env.NODE_ENV !== 'production';
   app.useGlobalFilters(new AllExceptionsFilter(showStack));
 
   app.useGlobalInterceptors(new RequestLoggingInterceptor());
-  app.enableShutdownHooks();
 
   const denylist = [
     'password',
@@ -65,13 +83,15 @@ async function bootstrap() {
   app.useGlobalInterceptors(
     new ClassSerializerInterceptor(app.get(Reflector)),
     new SanitizeInterceptor(app.get(Reflector), denylist),
+    new ResponseInterceptor(reflector),
   );
-  app.useGlobalInterceptors(new ResponseInterceptor(reflector));
 
-  app.use(new SentryScopeMiddleware().use);
+  app.enableShutdownHooks();
 
-  const port = config.get<number>('app.port') ?? 4000;
-  await app.listen(port);
+  const envPort = process.env.PORT ? Number(process.env.PORT) : undefined;
+  const port = envPort ?? config.get<number>('app.port') ?? 4000;
+
+  await app.listen(port, '0.0.0.0');
   const url = await app.getUrl();
   console.log(`${config.get('app.name')} running at ${url}`);
 }
