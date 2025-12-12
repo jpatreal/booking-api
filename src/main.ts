@@ -20,9 +20,9 @@ async function bootstrap() {
   const reflector = app.get(Reflector);
   const config = app.get(ConfigService);
 
-  // const expressApp = app.getHttpAdapter().getInstance();
+  const expressApp = app.getHttpAdapter().getInstance();
 
-  // expressApp.set('trust proxy', 1);
+  expressApp.set('trust proxy', 1);
 
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
