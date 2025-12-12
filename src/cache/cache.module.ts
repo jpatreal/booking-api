@@ -13,9 +13,17 @@ import redisConfig from '../config/redis.config';
       inject: [ConfigService],
       useFactory: async (config: ConfigService) => {
         const url = config.get<string>('redis.url');
+        if (!url) throw new Error('redis.url missing');
+
+        const isTls = url.startsWith('rediss://');
+        console.log(
+          '[cache] redis url:',
+          url?.replace(/\/\/.*@/, '//***:***@'),
+        );
         return {
           store: await redisStore({
             url,
+            ...(isTls ? { tls: {} } : {}),
             ttl: 30,
             pingInterval: 0,
           }),
