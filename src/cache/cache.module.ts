@@ -15,15 +15,18 @@ import redisConfig from '../config/redis.config';
         const url = config.get<string>('redis.url');
         if (!url) throw new Error('redis.url missing');
 
-        const isTls = url.startsWith('rediss://');
         console.log(
           '[cache] redis url:',
           url?.replace(/\/\/.*@/, '//***:***@'),
         );
+        const host = new URL(url).hostname;
         return {
           store: await redisStore({
             url,
-            ...(isTls ? { tls: {} } : {}),
+            family: 4,
+            tls: { servername: host },
+            connectTimeout: 10_000,
+            maxRetriesPerRequest: 3,
             ttl: 30,
             pingInterval: 0,
           }),
