@@ -93,7 +93,8 @@ async function bootstrap() {
   const port = envPort ?? config.get<number>('app.port') ?? 4000;
 
   await app.listen(port, '0.0.0.0');
-  const url = await app.getUrl();
-  console.log(`${config.get('app.name')} running at ${url}`);
+  console.log(`Listening on 0.0.0.0:${port}`);
+  // const url = await app.getUrl();
+  // console.log(`${config.get('app.name')} running at ${url}`);
 }
 bootstrap();
