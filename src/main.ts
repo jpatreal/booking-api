@@ -1,3 +1,4 @@
+import './ioredis-trace';
 import './instrument';
 
 import { NestFactory, Reflector } from '@nestjs/core';
